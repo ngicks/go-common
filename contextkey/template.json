@@ -1,0 +1,33 @@
+[
+    {
+        "FileName": "slog_logger",
+        "Name": "SlogLogger",
+        "Type": "*slog.Logger",
+        "DefaultExpr": "slog.Default()",
+        "NonDefaultExpr": "func() *slog.Logger { return new(slog.Logger) }()",
+        "EmitTest": true,
+        "Imports": [
+            "log/slog"
+        ]
+    },
+    {
+        "FileName": "sync_map",
+        "Name": "SyncMap",
+        "Type": "*sync.Map",
+        "DefaultExpr": "new(sync.Map)",
+        "NonDefaultExpr": "func() *sync.Map { var m sync.Map; m.Store(\"foo\", \"bar\"); return &m }()",
+        "EmitTest": true,
+        "EqualFunc": "equalSyncMap",
+        "Imports": [
+            "sync"
+        ]
+    },
+    {
+        "FileName": "request_id",
+        "Name": "RequestId",
+        "Type": "string",
+        "DefaultExpr": "\"\"",
+        "NonDefaultExpr": "func() string { return \"foo\" }()",
+        "EmitTest": true
+    }
+]

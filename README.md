@@ -1,2 +1,3 @@
 # go-common
-packages too small to have its own repositories
+
+A collection of modules which are too small to have their own repositories.

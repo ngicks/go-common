@@ -1,4 +1,4 @@
-package heap
+package priorityqueue
 
 import (
 	"github.com/ngicks/go-common/generic/gcontainer/gheap"

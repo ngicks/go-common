@@ -1,4 +1,4 @@
-package heap
+package priorityqueue
 
 // Filterable[T] is a filterable priority queue made on top of []T.
 type Filterable[T any] struct {

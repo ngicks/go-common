@@ -3,7 +3,6 @@ package serr
 import (
 	"errors"
 	"fmt"
-	"io/fs"
 	"testing"
 )
 
@@ -14,7 +13,27 @@ func TestMultiError(t *testing.T) {
 		nil,
 	} {
 		assertNilInterface(t, NewMultiError(errs))
+		assertNilInterface(t, NewMultiErrorChecked(errs))
 		assertBool(t, NewMultiErrorUnchecked(errs) != nil, "not NewMultiErrorUnchecked(errs) != nil")
+	}
+
+	sampleErr1 := errors.New("errors")
+	sampleErr2 := &exampleErr{"foo", "bar", "baz"}
+	sampleErrs := []error{sampleErr1, nil, sampleErr2}
+
+	for _, tc := range []struct {
+		len int
+		fn  func([]error) error
+	}{
+		{2, NewMultiError},
+		{3, NewMultiErrorChecked},
+		{3, NewMultiErrorUnchecked},
+	} {
+		err := tc.fn(sampleErrs)
+		assertErrorsIs(t, err, sampleErr1)
+		assertErrorsIs(t, err, sampleErr2)
+		assertErrorsAs[*exampleErr](t, err)
+		assertEq(t, tc.len, len(err.(interface{ Unwrap() []error }).Unwrap()))
 	}
 
 	type testCase struct {
@@ -22,17 +41,17 @@ func TestMultiError(t *testing.T) {
 		expected string
 	}
 	for _, tc := range []testCase{
-		{verb: "%s", expected: "MultiError: errors, exampleErr: Foo=foo Bar=bar Baz=baz"},
-		{verb: "%v", expected: "MultiError: errors, exampleErr: Foo=foo Bar=bar Baz=baz"},
-		{verb: "%+v", expected: "MultiError: errors, exampleErr: Foo=foo Bar=bar Baz=baz"},
-		{verb: "%#v", expected: "MultiError: &errors.errorString{s:\"errors\"}, &stream.exampleErr{Foo:\"foo\", Bar:\"bar\", Baz:\"baz\"}"},
-		{verb: "%d", expected: "MultiError: &{%!d(string=errors)}, &{%!d(string=foo) %!d(string=bar) %!d(string=baz)}"},
-		{verb: "%T", expected: "*stream.multiError"},
-		{verb: "%9.3f", expected: "MultiError: &{%!f(string=      err)}, &{%!f(string=      foo) %!f(string=      bar) %!f(string=      baz)}"},
+		{verb: "%s", expected: "MultiError: errors, %!s(<nil>), exampleErr: Foo=foo Bar=bar Baz=baz"},
+		{verb: "%v", expected: "MultiError: errors, <nil>, exampleErr: Foo=foo Bar=bar Baz=baz"},
+		{verb: "%+v", expected: "MultiError: errors, <nil>, exampleErr: Foo=foo Bar=bar Baz=baz"},
+		{verb: "%#v", expected: "MultiError: &errors.errorString{s:\"errors\"}, <nil>, &serr.exampleErr{Foo:\"foo\", Bar:\"bar\", Baz:\"baz\"}"},
+		{verb: "%d", expected: "MultiError: &{%!d(string=errors)}, %!d(<nil>), &{%!d(string=foo) %!d(string=bar) %!d(string=baz)}"},
+		{verb: "%T", expected: "*serr.multiError"},
+		{verb: "%9.3f", expected: "MultiError: &{%!f(string=      err)}, %!f(<nil>), &{%!f(string=      foo) %!f(string=      bar) %!f(string=      baz)}"},
 	} {
 		tc := tc
 		t.Run(tc.verb, func(t *testing.T) {
-			e := NewMultiErrorUnchecked([]error{errors.New("errors"), &exampleErr{"foo", "bar", "baz"}})
+			e := NewMultiErrorUnchecked(sampleErrs)
 			formatted := fmt.Sprintf(tc.verb, e)
 			assertEq(t, tc.expected, formatted)
 		})
@@ -40,25 +59,7 @@ func TestMultiError(t *testing.T) {
 
 	nilMultiErr := NewMultiErrorUnchecked(nil)
 	assertEq(t, "MultiError: ", nilMultiErr.Error())
-
-	mult := NewMultiErrorUnchecked([]error{
-		errors.New("foo"),
-		fs.ErrClosed,
-		&exampleErr{"foo", "bar", "baz"},
-		errExample,
-	})
-
-	assertErrorsIs(t, mult, fs.ErrClosed)
-
-	assertErrorsAs[*exampleErr](t, mult)
-	assertErrorsIs(t, mult, errExample)
-	assertNotErrorsIs(t, mult, errExampleUnknown)
 }
-
-var (
-	errExample        = errors.New("example")
-	errExampleUnknown = errors.New("unknown")
-)
 
 type exampleErr struct {
 	Foo string

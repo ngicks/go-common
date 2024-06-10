@@ -30,9 +30,25 @@ var _ fmt.Formatter = (*multiError)(nil)
 
 type multiError struct{ errs []error }
 
-// NewMultiError wraps errors into single error ignoring nil error in errs.
+// NewMultiError wraps errors into single error, ignoring nil values in errs.
+//
 // If all errors are nil or len(errs) == 0, NewMultiError returns nil.
+//
+// errs is retained by returned error.
+// Callers should not mutate errs after NewMultiErrorChecked returns.
 func NewMultiError(errs []error) error {
+	if len(errs) == 0 {
+		return nil
+	}
+	var i int
+	for i = 0; i < len(errs); i++ {
+		if errs[i] == nil {
+			break
+		}
+	}
+	if i == len(errs) {
+		return NewMultiErrorUnchecked(errs)
+	}
 	var filtered []error
 	for _, err := range errs {
 		if err != nil {
@@ -47,9 +63,39 @@ func NewMultiError(errs []error) error {
 	return &multiError{errs: filtered}
 }
 
+// NewMultiErrorChecked wraps errors into single error if and only if errs contains at least one non nil error.
+// It also preserves nil errors in errs for better printing.
+// This is useful when an error itself does not contain information
+// to pin-point how and why error is caused other than just index within error slice.
+//
+// NewMultiErrorChecked returns nil if len(errs) == 0 or all errors are nil.
+//
+// errs is retained by returned error.
+// Callers should not mutate errs after NewMultiErrorChecked returns.
+func NewMultiErrorChecked(errs []error) error {
+	if len(errs) == 0 {
+		return nil
+	}
+
+	containsNonNil := false
+	for _, e := range errs {
+		if e != nil {
+			containsNonNil = true
+			break
+		}
+	}
+	if !containsNonNil {
+		return nil
+	}
+	return NewMultiErrorUnchecked(errs)
+}
+
 // NewMultiErrorUnchecked wraps errors into single error.
 // As suffix "unchecked" implies it does not do any filtering for errs.
 // The returned error is always non nil even if all errors are nil or len(errs) == 0.
+//
+// errs is retained by returned error.
+// Callers should not mutate errs after NewMultiErrorChecked returns.
 func NewMultiErrorUnchecked(errs []error) error {
 	return &multiError{errs: errs}
 }

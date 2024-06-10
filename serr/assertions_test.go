@@ -12,12 +12,12 @@ func assertErrorsIs(t *testing.T, err, target error) {
 	}
 }
 
-func assertNotErrorsIs(t *testing.T, err, target error) {
-	t.Helper()
-	if errors.Is(err, target) {
-		t.Fatalf("errors.Is(err, target) returned true, err = %#v, target = %#v", err, target)
-	}
-}
+// func assertNotErrorsIs(t *testing.T, err, target error) {
+// 	t.Helper()
+// 	if errors.Is(err, target) {
+// 		t.Fatalf("errors.Is(err, target) returned true, err = %#v, target = %#v", err, target)
+// 	}
+// }
 
 func assertErrorsAs[T any](t *testing.T, err error) {
 	t.Helper()

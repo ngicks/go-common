@@ -1,6 +1,7 @@
 package contextkey
 
 import (
+	"log/slog"
 	"slices"
 	"sync"
 )
@@ -40,4 +41,19 @@ func equalSyncMap(v1, v2 any) bool {
 		return true
 	})
 	return eq
+}
+
+func equalSlogAttrs(v1, v2 any) bool {
+	attrs1, ok := v1.([]slog.Attr)
+	if !ok {
+		return false
+	}
+	attrs2, ok := v2.([]slog.Attr)
+	if !ok {
+		return false
+	}
+
+	return slices.EqualFunc(attrs1, attrs2, func(l, r slog.Attr) bool {
+		return l.Equal(r)
+	})
 }

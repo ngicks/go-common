@@ -29,5 +29,17 @@
         "DefaultExpr": "\"\"",
         "NonDefaultExpr": "func() string { return \"foo\" }()",
         "EmitTest": true
+    },
+    {
+        "FileName": "slog_attrs",
+        "Name": "SlogAttrs",
+        "Type": "[]slog.Attr",
+        "DefaultExpr": "[]slog.Attr(nil)",
+        "NonDefaultExpr": "func() []slog.Attr { return []slog.Attr{slog.String(\"foo\", \"bar\")} }()",
+        "EmitTest": true,
+        "EqualFunc": "equalSlogAttrs",
+        "Imports": [
+            "log/slog"
+        ]
     }
 ]

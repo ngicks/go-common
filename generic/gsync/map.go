@@ -8,6 +8,10 @@ type Map[K comparable, V any] struct {
 	inner sync.Map
 }
 
+func (m *Map[K, V]) Unwrap() *sync.Map {
+	return &m.inner
+}
+
 func (m *Map[K, V]) Delete(key K) {
 	m.inner.Delete(key)
 }

@@ -1,29 +1,10 @@
 package serr
 
 import (
-	"bytes"
 	"fmt"
-	"sync"
+	"io"
+	"strings"
 )
-
-var bufPool = &sync.Pool{
-	New: func() any {
-		return new(bytes.Buffer)
-	},
-}
-
-func getBuf() *bytes.Buffer {
-	return bufPool.Get().(*bytes.Buffer)
-}
-
-func putBuf(b *bytes.Buffer) {
-	if b.Cap() > 64*1024 {
-		// See https://golang.org/issue/23199
-		return
-	}
-	b.Reset()
-	bufPool.Put(b)
-}
 
 var _ error = (*multiError)(nil)
 var _ fmt.Formatter = (*multiError)(nil)
@@ -100,35 +81,24 @@ func NewMultiErrorUnchecked(errs []error) error {
 	return &multiError{errs: errs}
 }
 
-func (me *multiError) str(fmtStr string) string {
-	if len(me.errs) == 0 {
-		return "MultiError: "
+func (me *multiError) Unwrap() []error {
+	return me.errs
+}
+
+func (me *multiError) format(w io.Writer, fmtStr string) {
+	_, _ = io.WriteString(w, "MultiError: ")
+	for i, err := range me.errs {
+		if i > 0 {
+			_, _ = w.Write([]byte(`, `))
+		}
+		_, _ = fmt.Fprintf(w, fmtStr, err)
 	}
-
-	buf := getBuf()
-	defer putBuf(buf)
-
-	_, _ = buf.WriteString("MultiError: ")
-
-	for _, e := range me.errs {
-		_, _ = fmt.Fprintf(buf, fmtStr, e)
-		_, _ = buf.WriteString(", ")
-	}
-
-	// This line is safe since:
-	// For cases where len(me.errs) == 0, it removes `: ` suffix.
-	// For other cases it removes `, ` suffix.
-	buf.Truncate(buf.Len() - 2)
-
-	return buf.String()
 }
 
 func (me *multiError) Error() string {
-	return me.str("%s")
-}
-
-func (me *multiError) Unwrap() []error {
-	return me.errs
+	var s strings.Builder
+	me.format(&s, "%s")
+	return s.String()
 }
 
 // Format implements fmt.Formatter.
@@ -144,5 +114,5 @@ func (me *multiError) Unwrap() []error {
 // (%+v) stream.multiError{(*errors.errorString)(0xc00002c300), (*mymodule.exampleErr)(0xc000102630)}
 // (%#v) [824633901824 824634779184]
 func (me *multiError) Format(state fmt.State, verb rune) {
-	state.Write([]byte(me.str(fmt.FormatString(state, verb))))
+	me.format(state, fmt.FormatString(state, verb))
 }

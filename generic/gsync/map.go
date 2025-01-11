@@ -60,6 +60,10 @@ func (m *Map[K, V]) Swap(key K, value V) (previous V, loaded bool) {
 	}
 }
 
+func (m *Map[K, V]) Clear() {
+	m.inner.Clear()
+}
+
 type ComparableMap[K, V comparable] struct {
 	Map[K, V]
 }

@@ -6,17 +6,25 @@ import (
 	"github.com/ngicks/go-common/serr"
 )
 
-var ErrBase = errors.New("base")
-
-var (
-	Override = false
-	Depth    = -1
-)
-
 func WrapBase() error {
-	if Depth >= 0 {
-		return serr.WithStackOverride(ErrBase, Override, Depth)
+	if Opt != nil {
+		return serr.WithStackOpt(ErrBase, Opt)
 	} else {
 		return serr.WithStack(ErrBase)
 	}
 }
+
+// define anything under this line. Adding lines above WrapBase changes stack info.
+
+var ErrBase = errors.New("base")
+
+var (
+	DefaultOpt = &serr.WrapStackOpt{
+		Override: false,
+		Depth:    -1,
+		Skip:     3,
+	}
+	Opt = &serr.WrapStackOpt{
+		Override: false,
+	}
+)

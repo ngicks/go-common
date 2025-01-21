@@ -13,10 +13,15 @@ import (
 //go:generate go run ./internal/generate_test_call
 
 func TestWithStack(t *testing.T) {
+	defer func() {
+		opt := *baseerr.DefaultOpt
+		baseerr.Opt = &opt
+	}()
+
 	var buf bytes.Buffer
 
-	baseerr.Depth = 0
-
+	opt := *baseerr.DefaultOpt
+	baseerr.Opt = &opt
 	buf.Reset()
 	err := pkg0.F_0_0()
 	errPrinting := serr.PrintStack(&buf, err)
@@ -33,7 +38,7 @@ func TestWithStack(t *testing.T) {
 		t.Fatalf("not correct")
 	}
 
-	baseerr.Depth = -1
+	baseerr.Opt = nil
 	buf.Reset()
 	err = pkg0.F_0_0()
 	_ = serr.PrintStack(&buf, err)
@@ -48,7 +53,7 @@ func TestWithStack(t *testing.T) {
 		t.Fatalf("not correct")
 	}
 
-	baseerr.Depth = 27
+	baseerr.Opt = &serr.WrapStackOpt{Depth: 27}
 	buf.Reset()
 	err = pkg0.F_0_0()
 	_ = serr.PrintStack(&buf, err)
@@ -59,6 +64,31 @@ func TestWithStack(t *testing.T) {
 		t.Logf("actual = %s", actual)
 		t.Fatalf("not correct")
 	}
+
+	baseerr.Opt = &serr.WrapStackOpt{Skip: 1}
+	buf.Reset()
+	err = pkg0.F_0_0()
+	_ = serr.PrintStack(&buf, err)
+	expected = "github.com/ngicks/go-common/serr.wrapStack"
+	actual = firstLine(buf.String())
+	if !strings.HasPrefix(actual, expected) {
+		t.Logf("expected = %s", expected)
+		t.Logf("actual = %s", actual)
+		t.Fatalf("not correct: expecting expected is prefix of actual")
+	}
+
+	// fallen back to 3.
+	baseerr.Opt = &serr.WrapStackOpt{Skip: 0}
+	buf.Reset()
+	err = pkg0.F_0_0()
+	_ = serr.PrintStack(&buf, err)
+	expected = "github.com/ngicks/go-common/serr/internal/callstack/baseerr.WrapBase"
+	actual = firstLine(buf.String())
+	if !strings.HasPrefix(actual, expected) {
+		t.Logf("expected = %s", expected)
+		t.Logf("actual = %s", actual)
+		t.Fatalf("not correct: expecting expected is prefix of actual")
+	}
 }
 
 func trimLine(s string, i, j int) string {
@@ -68,9 +98,16 @@ func trimLine(s string, i, j int) string {
 	}
 	return strings.Join(lines[i:j], "\n")
 }
+func firstLine(s string) string {
+	lines := strings.Split(s, "\n")
+	if len(lines) > 0 {
+		return lines[0]
+	}
+	return ""
+}
 
 var (
-	exampleStack = `github.com/ngicks/go-common/serr/internal/callstack/baseerr.WrapBase(/git/github.com/ngicks/go-common/serr/internal/callstack/baseerr/err.go:18)
+	exampleStack = `github.com/ngicks/go-common/serr/internal/callstack/baseerr.WrapBase(/git/github.com/ngicks/go-common/serr/internal/callstack/baseerr/err.go:11)
 github.com/ngicks/go-common/serr/internal/callstack/pkg4.F_4_9(/git/github.com/ngicks/go-common/serr/internal/callstack/pkg4/a4.go:44)
 github.com/ngicks/go-common/serr/internal/callstack/pkg4.F_4_8(/git/github.com/ngicks/go-common/serr/internal/callstack/pkg4/a4.go:40)
 github.com/ngicks/go-common/serr/internal/callstack/pkg4.F_4_7(/git/github.com/ngicks/go-common/serr/internal/callstack/pkg4/a4.go:36)

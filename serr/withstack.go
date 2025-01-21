@@ -19,8 +19,24 @@ const (
 	defaultStackSizeMax     = 1 << 11
 )
 
-func wrapStack(err error, override bool, depth int) error {
-	if !override {
+type WrapStackOpt struct {
+	// If false, [WithStackOpt] returns err without doing anything if err has already been wrapped with [WithStack] or [WithStackOpt].
+	// Otherwise it always wraps the error.
+	Override bool
+	// Depth defines max number of pc.
+	// If Depth is less than or equals to 0, it [WithStackOpt] works as if 2048 is passed.
+	Depth int
+	// Skip is passed to [runtime.Callers].
+	// If Skip is less than 1(skipping runtime.Callers), default value 3 is used instead.
+	Skip int
+}
+
+func defaultWrapStackOpt() *WrapStackOpt {
+	return &WrapStackOpt{Depth: defaultStackSizeInitial}
+}
+
+func wrapStack(err error, opt *WrapStackOpt) error {
+	if !opt.Override {
 		var ws *withStack
 		if errors.As(err, &ws) {
 			// already wrapped
@@ -29,19 +45,19 @@ func wrapStack(err error, override bool, depth int) error {
 	}
 	initialSize := defaultStackSizeInitial
 	maxSize := defaultStackSizeMax
-	if depth > 0 {
-		initialSize = min(defaultStackSizeInitial, depth+1)
-		maxSize = depth + 1
+	if opt.Depth > 0 {
+		initialSize = min(defaultStackSizeInitial, opt.Depth+1)
+		maxSize = opt.Depth + 1
 	}
 	pc := make([]uintptr, initialSize)
 	// skip runtime.Callers, WithStack|WithStackOverride, wrapStack
-	n := runtime.Callers(3, pc)
+	n := runtime.Callers(cmp.Or(max(opt.Skip, 0), 3), pc)
 	if maxSize != initialSize {
 		for n == len(pc) {
 			// grow. let append decide size.
 			pc = append(pc, 0)
 			pc = pc[:cap(pc)]
-			n = runtime.Callers(3, pc)
+			n = runtime.Callers(cmp.Or(max(opt.Skip, 0), 3), pc)
 			if n >= maxSize {
 				break
 			}
@@ -58,18 +74,19 @@ func wrapStack(err error, override bool, depth int) error {
 //
 // WithStack wraps err only when it has not yet been wrapped.
 // The depth of the stack trace is limited to 64.
-// To control these behavior, use [WithStackOverride].
+// To control these behavior, use [WithStackOpt].
 func WithStack(err error) error {
-	return wrapStack(err, false, defaultStackSizeInitial)
+	return wrapStack(err, defaultWrapStackOpt())
 }
 
-// WithStackOverride is like [WithStack] but allows to control override and/or depth of stacktrace.
-//
-// WithStackOverride returns err without doing anything if override is false.
-// depth controls max number of stack frames embedded into the returned error.
-// If depth is less than or equals to 0, then it is limited to 2048.
-func WithStackOverride(err error, override bool, depth int) error {
-	return wrapStack(err, override, depth)
+// WithStackOpt is like [WithStack] but allows to control behavior by opt.
+// See doc comment on [WrapStackOpt] for detail.
+// Passing nil to opt works as if pointer of zero value is passed.
+func WithStackOpt(err error, opt *WrapStackOpt) error {
+	if opt == nil {
+		opt = &WrapStackOpt{}
+	}
+	return wrapStack(err, opt)
 }
 
 func (e *withStack) format(w io.Writer, format string) {
@@ -91,7 +108,7 @@ func (e *withStack) Unwrap() error {
 }
 
 // Pc retrieves slice of pc from err
-// The slice is nil if err has not been wrapped by [WithStack] or [WithStackOverride].
+// The slice is nil if err has not been wrapped by [WithStack] or [WithStackOpt].
 func Pc(err error) []uintptr {
 	var ws *withStack
 	if !errors.As(err, &ws) {
@@ -101,7 +118,7 @@ func Pc(err error) []uintptr {
 }
 
 // Frames returns an iterator over [runtime.Frame] using pc embedded to err.
-// The iterator yields nothing if err has not been wrapped by [WithStack] or [WithStackOverride].
+// The iterator yields nothing if err has not been wrapped by [WithStack] or [WithStackOpt].
 func Frames(err error) iter.Seq[runtime.Frame] {
 	return func(yield func(runtime.Frame) bool) {
 		pc := Pc(err)

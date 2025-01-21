@@ -1,6 +1,7 @@
 package serr
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"io"
@@ -147,4 +148,31 @@ func PrintStack(w io.Writer, err error) error {
 		}
 	}
 	return nil
+}
+
+// UnwrapStackErr unwraps an error which has been wrapped with [WithStack] (or [WithStackOpt]) first found in err's chain.
+// If the unwrapped error is also wrapped with [WithStack], then functions like [PrintStack] works for nested stack frames.
+func UnwrapStackErr(err error) error {
+	var ws *withStack
+	if !errors.As(err, &ws) {
+		return nil
+	}
+	return ws.err
+}
+
+// DeepFrames returns an iterator over iterator of [runtime.Frame]s embedded in err.
+// If err is wrapped with [WithStack] or [WithStackOpt], then iterator yields frames using embedded pc.
+// If err is wrapped twice or more, then iterator yields those nested frames.
+func DeepFrames(err error) iter.Seq[iter.Seq[runtime.Frame]] {
+	return func(yield func(iter.Seq[runtime.Frame]) bool) {
+		// shadowing err so that returned iterator is always stateless.
+		for err := err; err != nil; err = UnwrapStackErr(err) {
+			if Pc(err) == nil { // never be nil if wrapped.
+				return
+			}
+			if !yield(Frames(err)) {
+				return
+			}
+		}
+	}
 }

@@ -20,9 +20,6 @@ type gathered struct{ errs []error }
 // The returned error, if not a nil, implements [fmt.Formatter] which prints wrapped errors using given flags and verbs.
 // Each error is separated by ", ".
 // If the returned error itself should be prefixed with a message, use with [Prefix].
-//
-// errs is retained by returned error.
-// Callers should not mutate errs after NewMultiErrorChecked returns.
 func Gather(errs ...error) error {
 	if len(errs) == 0 {
 		return nil
@@ -169,10 +166,10 @@ func (e *gathered) Error() string {
 //
 // Without Format, e is less readable when printed through fmt.*printf family functions.
 // e.g. Format produces lines like
-// (%+v) MultiError: errors, exampleErr: Foo=foo Bar=bar Baz=baz
-// (%#v) MultiError: &errors.errorString{s:"errors"}, &mymodule.exampleErr{Foo:"foo", Bar:"bar", Baz:"baz"}
+// (%+v) errors, exampleErr: Foo=foo Bar=bar Baz=baz
+// (%#v) &errors.errorString{s:"errors"}, &mymodule.exampleErr{Foo:"foo", Bar:"bar", Baz:"baz"}
 // instead of (w/o Format)
-// (%+v) stream.multiError{(*errors.errorString)(0xc00002c300), (*mymodule.exampleErr)(0xc000102630)}
+// (%+v) serr.gathered{(*errors.errorString)(0xc00002c300), (*mymodule.exampleErr)(0xc000102630)}
 // (%#v) [824633901824 824634779184]
 func (e *gathered) Format(state fmt.State, verb rune) {
 	e.format(state, fmt.FormatString(state, verb))

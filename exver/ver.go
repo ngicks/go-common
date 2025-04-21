@@ -2,16 +2,151 @@ package exver
 
 import (
 	"cmp"
+	"encoding"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
 	"unicode/utf8"
 )
 
+const (
+	componentMax = 9999
+)
+
 // Core represents only numeric part of Version.
 type Core struct {
 	component [4]uint16
 	length    int
+}
+
+func NewCore(nums []uint16) (Core, error) {
+	if len(nums) == 0 || len(nums) > 4 {
+		return Core{}, fmt.Errorf("input must be larger than 1 and be less than or equals to 4")
+	}
+
+	var component [4]uint16
+	for i, num := range nums {
+		if num > componentMax {
+			return Core{}, fmt.Errorf("%q too large: larger than %d", componentName(i), componentMax)
+		}
+		component[i] = num
+	}
+
+	return Core{
+		component: component,
+		length:    len(nums),
+	}, nil
+}
+
+func ParseCore(s string) (Core, error) {
+	a, b, c, d, s, err := version(s)
+	if err != nil {
+		return Core{}, err
+	}
+
+	core, err := convertCore(a, b, c, d)
+	if err != nil {
+		return core, err
+	}
+
+	if len(s) > 0 {
+		return Core{}, fmt.Errorf("extra string %q after version core", s)
+	}
+
+	return core, nil
+}
+
+func convertCore(a, b, c, d int64) (Core, error) {
+	rawComponent := [4]int64{a, b, c, d}
+	var comopnent [4]uint16
+	var i int
+	// for-range-int works a bit differently.
+	// It will skip last increament (stops at 3 even if the iteration was not break-ed)
+	for i = 0; i < 4; i++ {
+		if rawComponent[i] < 0 {
+			break
+		}
+		if rawComponent[i] > componentMax {
+			return Core{}, fmt.Errorf("%q too large: larger than %d", componentName(i), componentMax)
+		}
+		comopnent[i] = uint16(rawComponent[i])
+	}
+
+	return Core{component: comopnent, length: i}, nil
+}
+
+func (c Core) Component() [4]uint16 {
+	return c.component
+}
+
+func (c Core) Nums() []uint {
+	out := make([]uint, c.length)
+	for i := range c.length {
+		out[i] = uint(c.component[i])
+	}
+	return out
+}
+
+func (c Core) Int64() int64 {
+	var out int64
+	for i := range c.length {
+		mult := int64(1)
+		for range 3 - i {
+			mult *= 10000
+		}
+		out += int64(c.component[i]) * mult
+	}
+	return out
+}
+
+func (c Core) String() string {
+	if c == (Core{}) {
+		return "0.0.0"
+	}
+	var builder strings.Builder
+	for i := range c.length {
+		if i > 0 {
+			builder.WriteByte('.')
+		}
+		builder.WriteString(strconv.FormatUint(uint64(c.component[i]), 10))
+	}
+	return builder.String()
+}
+
+var (
+	_ encoding.TextMarshaler   = Core{}
+	_ encoding.TextUnmarshaler = (*Core)(nil)
+)
+
+func (c Core) MarshalText() ([]byte, error) {
+	return []byte(c.String()), nil
+}
+
+func (c *Core) UnmarshalText(text []byte) error {
+	core, err := ParseCore(string(text))
+	if err != nil {
+		return err
+	}
+	*c = core
+	return nil
+}
+
+var (
+	_ json.Marshaler   = Core{}
+	_ json.Unmarshaler = (*Core)(nil)
+)
+
+func (c Core) MarshalJSON() ([]byte, error) {
+	// No need to escape: only numeric tokens are permitted.
+	return []byte("\"" + c.String() + "\""), nil
+}
+
+func (c *Core) UnmarshalJSON(data []byte) error {
+	if len(data) < 2 {
+		return fmt.Errorf("too short")
+	}
+	return c.UnmarshalText(data[1 : len(data)-1])
 }
 
 // Compare returns
@@ -44,30 +179,21 @@ func Parse(s string) (Version, error) {
 		return Version{}, err
 	}
 
-	rawComponent := [4]int64{a, b, c, d}
-	var comopnent [4]uint16
-	var i int
-	// for-range-int works a bit differently.
-	// It will skip last increament (stops at 3 even if the iteration was not break-ed)
-	for i = 0; i < 4; i++ {
-		if rawComponent[i] < 0 {
-			break
-		}
-		if rawComponent[i] > 9999 {
-			return Version{}, fmt.Errorf("%q too larget > 9999", componentName(i))
-		}
-		comopnent[i] = uint16(rawComponent[i])
+	core, err := convertCore(a, b, c, d)
+	if err != nil {
+		return Version{}, err
 	}
 
 	return Version{
-		v: v,
-		core: Core{
-			component: comopnent,
-			length:    i,
-		},
+		v:          v,
+		core:       core,
 		prerelease: pre_,
 		build:      build_,
 	}, nil
+}
+
+func (v Version) Core() Core {
+	return v.core
 }
 
 func (v Version) Compare(u Version) int {
@@ -184,51 +310,11 @@ func vPrefixedValidExtendedVer(s string) (v bool, a, b, c, d int64, pre_, build_
 //	| <full version core> "+" <build>
 //	| <full version core> "-" <pre-release> "+" <build>
 func validExtendedVer(s string) (a, b, c, d int64, pre_, build_ string, err error) {
-	a, b, c, d = -1, -1, -1, -1
+	a, b, c, d, s, err = version(s)
+
 	var (
-		num    string
-		parsed uint64
-		ok     bool
+		ok bool
 	)
-
-LOOP:
-	for i := range 4 {
-		if i > 0 {
-			if len(s) == 0 {
-				break
-			}
-			switch s[0] {
-			case '.':
-				s = s[1:]
-			case '-', '+':
-				break LOOP
-			default:
-				err = fmt.Errorf("missing '.', '-' or '+' after %q", componentName(i-1))
-				return
-			}
-		}
-
-		num, s, ok = numericIdentifier(s)
-		if !ok {
-			err = fmt.Errorf("missing %q", componentName(i))
-			return
-		}
-		parsed, err = strconv.ParseUint(num, 10, 63)
-		if err != nil {
-			err = fmt.Errorf("parsing %q: %w", componentName(i), err)
-			return
-		}
-		switch i {
-		case 0:
-			a = int64(parsed)
-		case 1:
-			b = int64(parsed)
-		case 2:
-			c = int64(parsed)
-		case 3:
-			d = int64(parsed)
-		}
-	}
 
 	if len(s) == 0 {
 		if a < 0 {
@@ -286,6 +372,61 @@ func componentName(idx int) string {
 	default:
 		return "extra"
 	}
+}
+
+// <version> ::= <major>
+//
+//	| <major> "." <minor>
+//	| <major> "." <minor> "." <patch>
+//	| <major> "." <minor> "." <patch> "." <extra>
+func version(s string) (a, b, c, d int64, rest string, err error) {
+	a, b, c, d = -1, -1, -1, -1
+	var (
+		num    string
+		parsed uint64
+		ok     bool
+	)
+
+LOOP:
+	for i := range 4 {
+		if i > 0 {
+			if len(s) == 0 {
+				break
+			}
+			switch s[0] {
+			case '.':
+				s = s[1:]
+			case '-', '+':
+				break LOOP
+			default:
+				err = fmt.Errorf("missing '.', '-' or '+' after %q", componentName(i-1))
+				return
+			}
+		}
+
+		num, s, ok = numericIdentifier(s)
+		if !ok {
+			err = fmt.Errorf("missing %q", componentName(i))
+			return
+		}
+		parsed, err = strconv.ParseUint(num, 10, 63)
+		if err != nil {
+			err = fmt.Errorf("parsing %q: %w", componentName(i), err)
+			return
+		}
+		switch i {
+		case 0:
+			a = int64(parsed)
+		case 1:
+			b = int64(parsed)
+		case 2:
+			c = int64(parsed)
+		case 3:
+			d = int64(parsed)
+		}
+	}
+
+	return a, b, c, d, s, nil
 }
 
 // modified

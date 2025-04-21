@@ -6,6 +6,189 @@ import (
 	"testing"
 )
 
+func TestNewCore(t *testing.T) {
+	bad := [][]uint16{
+		{},
+		{1, 2, 3, 4, 5},
+		{10000},
+	}
+	for _, tc := range bad {
+		_, err := NewCore(tc)
+		if err == nil {
+			t.Errorf("%q: must return non-nil error", tc)
+		}
+	}
+
+	good := []struct {
+		in  []uint16
+		out Core
+	}{
+		{[]uint16{1}, Core{component: [4]uint16{1}, length: 1}},
+		{[]uint16{1, 2}, Core{component: [4]uint16{1, 2}, length: 2}},
+		{[]uint16{1, 2, 3}, Core{component: [4]uint16{1, 2, 3}, length: 3}},
+		{[]uint16{1, 2, 3, 4}, Core{component: [4]uint16{1, 2, 3, 4}, length: 4}},
+		{[]uint16{99, 888, 777, 6666}, Core{component: [4]uint16{99, 888, 777, 6666}, length: 4}},
+	}
+
+	for _, tc := range good {
+		c, err := NewCore(tc.in)
+		if err != nil {
+			t.Errorf("%q: must not return non-nil error(%q)", tc.in, err)
+		}
+		if c != tc.out {
+			t.Errorf("%q: not equal\nexpected = %#v\nactual = %#v", tc.in, tc.out, c)
+		}
+	}
+}
+
+func TestParseCore(t *testing.T) {
+	bad := []string{
+		"bad",
+		"1.2.3.4.5",
+		"1.2-foo",
+		"1.2.3-foo",
+		"1.2.3foo",
+		"01.02.03",
+		"aa.bb.cc",
+		"10000.10000",
+	}
+	for _, tc := range bad {
+		_, err := ParseCore(tc)
+		if err == nil {
+			t.Errorf("%q: ParseCore must return error", tc)
+		}
+	}
+
+	good := []struct {
+		in  string
+		out Core
+	}{
+		{"1", Core{component: [4]uint16{1}, length: 1}},
+		{"1.2", Core{component: [4]uint16{1, 2}, length: 2}},
+		{"1.2.3", Core{component: [4]uint16{1, 2, 3}, length: 3}},
+		{"1.2.3.4", Core{component: [4]uint16{1, 2, 3, 4}, length: 4}},
+		{"99.888.777.6666", Core{component: [4]uint16{99, 888, 777, 6666}, length: 4}},
+	}
+
+	for _, tc := range good {
+		c, err := ParseCore(tc.in)
+		if err != nil {
+			t.Errorf("%q: must not return non-nil error(%q)", tc.in, err)
+		}
+		if c != tc.out {
+			t.Errorf("%q: not equal\nexpected = %#v\nactual = %#v", tc.in, tc.out, c)
+		}
+	}
+}
+
+func TestCore_Component(t *testing.T) {
+	var c Core
+	c, _ = NewCore([]uint16{1, 2, 3})
+	if c.Component() != [4]uint16{1, 2, 3, 0} {
+		t.Errorf("not equal:\nexpected = %#v\nactual = %#v", [4]uint16{1, 2, 3, 0}, c.Component())
+	}
+}
+
+func TestCore_Nums(t *testing.T) {
+	for _, tc := range []struct {
+		in       []uint16
+		expected []uint
+	}{
+		{[]uint16{1}, []uint{1}},
+		{[]uint16{1, 2}, []uint{1, 2}},
+		{[]uint16{1, 2, 3, 4}, []uint{1, 2, 3, 4}},
+	} {
+		c, _ := NewCore(tc.in)
+		if !slices.Equal(c.Nums(), tc.expected) {
+			t.Errorf("not equal:\nexpected = %#v\nactual = %#v", tc.expected, c.Nums())
+		}
+	}
+}
+
+func TestCore_Int64(t *testing.T) {
+	for _, tc := range []struct {
+		in       []uint16
+		expected int64
+	}{
+		{[]uint16{1}, 1_0000_0000_0000},
+		{[]uint16{1, 2}, 1_0002_0000_0000},
+		{[]uint16{1, 2, 3, 4}, 1_0002_0003_0004},
+		{[]uint16{9999, 9999, 9999, 9999}, 9999_9999_9999_9999},
+	} {
+		c, _ := NewCore(tc.in)
+		if c.Int64() != tc.expected {
+			t.Errorf("not equal:\nexpected = %d\nactual = %d", tc.expected, c.Int64())
+		}
+	}
+}
+
+func TestCore_String_UnmarshalText_MarshalText(t *testing.T) {
+	for _, tc := range []struct {
+		in       []uint16
+		expected string
+	}{
+		{[]uint16{}, "0.0.0"},
+		{[]uint16{1}, "1"},
+		{[]uint16{1, 2}, "1.2"},
+		{[]uint16{1, 2, 3, 4}, "1.2.3.4"},
+		{[]uint16{9999, 9999, 9999, 9999}, "9999.9999.9999.9999"},
+	} {
+		c, _ := NewCore(tc.in)
+		if c.String() != tc.expected {
+			t.Errorf("not equal:\nexpected = %s\nactual = %s", tc.expected, c.String())
+		}
+		if bin, _ := c.MarshalText(); string(bin) != tc.expected {
+			t.Errorf("not equal:\nexpected = %s\nactual = %s", tc.expected, bin)
+		}
+		var c2 Core
+		err := c2.UnmarshalText([]byte(tc.expected))
+		if err != nil {
+			t.Errorf("must be nil: %v", err)
+		}
+		if c.String() != c2.String() {
+			t.Errorf("not equal:\nexpected = %s\nactual = %s", c.String(), c2.String())
+		}
+	}
+}
+
+func TestCore_UnmarshalJSON_MarshalJSON(t *testing.T) {
+	bad := []string{
+		"",
+		"\"\"",
+		"foo.bar",
+	}
+
+	for _, tc := range bad {
+		var c Core
+		err := c.UnmarshalJSON([]byte(tc))
+		if err == nil {
+			t.Errorf("%q: must not be nil", tc)
+		}
+	}
+
+	good := []struct {
+		in  string
+		out Core
+	}{
+		{"\"1.0.0\"", Core{component: [4]uint16{1}, length: 3}},
+		{"\"0.0.0\"", Core{component: [4]uint16{}, length: 3}},
+		{"\"1.2.3.4\"", Core{component: [4]uint16{1, 2, 3, 4}, length: 4}},
+	}
+	for _, tc := range good {
+		var c Core
+		err := c.UnmarshalJSON([]byte(tc.in))
+		if err != nil {
+			t.Errorf("must be nil: %v", err)
+		}
+		if tc.out != c {
+			t.Errorf("not equal:\nexpected = %#v\nactual = %#v", tc.out, c)
+		}
+		if marshaled, _ := c.MarshalJSON(); string(marshaled) != tc.in {
+			t.Errorf("not equal:\nexpected = %s\nactual = %s", tc.in, string(marshaled))
+		}
+	}
+}
+
 type parseTestCase struct {
 	in  string
 	out *Version

@@ -14,12 +14,21 @@ const (
 	componentMax = 9999
 )
 
-// Core represents only numeric part of Version.
+// Core represents only numeric part of [Version].
+//
+// The number of version fields may vary based on input between `a` to `a.b.c.d`.
+// Each field is limited up to 9999.
+//
+// The zero value of Core is invalid and must be initialized with [NewCore] or [ParseCore].
+// However calling [Core.String] with zero value returns `"0.0.0"` and works fine almost all situation.
 type Core struct {
 	component [4]uint16
 	length    int
 }
 
+// NewCore initializes Core.
+// len(nums) must be between 1 and 4.
+// If any component of nums are greater than 9999, it returns an error.
 func NewCore(nums []uint16) (Core, error) {
 	if len(nums) == 0 || len(nums) > 4 {
 		return Core{}, fmt.Errorf("input must be larger than 1 and be less than or equals to 4")
@@ -39,6 +48,7 @@ func NewCore(nums []uint16) (Core, error) {
 	}, nil
 }
 
+// MustNewCore is like [NewCore] but panics if an error occurs.
 func MustNewCore(nums []uint16) Core {
 	c, err := NewCore(nums)
 	if err != nil {
@@ -47,6 +57,10 @@ func MustNewCore(nums []uint16) Core {
 	return c
 }
 
+// ParseCore parses string expression and returns Core.
+// s must be dot-separated numeric values without leading zeros.
+// Similar rules to [NewCore] apply here:
+// the number of version fields must be in between 1 to 4 and each version component must not be greater than 9999.
 func ParseCore(s string) (Core, error) {
 	a, b, c, d, s, err := version(s)
 	if err != nil {
@@ -65,6 +79,7 @@ func ParseCore(s string) (Core, error) {
 	return core, nil
 }
 
+// MustParseCore is like [ParseCore] but panics if any error occurs.
 func MustParseCore(s string) Core {
 	c, err := ParseCore(s)
 	if err != nil {
@@ -92,10 +107,15 @@ func convertCore(a, b, c, d int64) (Core, error) {
 	return Core{component: comopnent, length: i}, nil
 }
 
+// Component returns internal version field expression.
 func (c Core) Component() [4]uint16 {
 	return c.component
 }
 
+// Nums returns version fields as slice of uint.
+// The length of the return value may vary on input,
+// e.g. if input was `1` then Nums returns []uint{1},
+// if was `1.2.3.4`, it returns []uint{1, 2, 3, 4}.
 func (c Core) Nums() []uint {
 	out := make([]uint, c.length)
 	for i := range c.length {
@@ -104,6 +124,8 @@ func (c Core) Nums() []uint {
 	return out
 }
 
+// Int64 returns version fields as int64 value.
+// The conversion logic is roghly same of `strconv.ParseInt(fmt.Sprintf("%04d%04d%04d%04d", a, b, c, d), 10, 64)` but more efficient.
 func (c Core) Int64() int64 {
 	var out int64
 	for i := range c.length {
@@ -116,6 +138,8 @@ func (c Core) Int64() int64 {
 	return out
 }
 
+// String returns string representation of the version.
+// If c is zero, it returns `"0.0.0"`.
 func (c Core) String() string {
 	if c == (Core{}) {
 		return "0.0.0"
@@ -190,13 +214,22 @@ func (c Core) Compare(u Core) int {
 	return 0
 }
 
+// Version is an implementaion of semantic versioning v2 but with slight extensions.
+// The general form of a semantic version string accepted by Version is
+//
 // [v]A[.B[.C[.D][-PRERELEASE][+BUILD]]
+//
+//   - `v` prefix is optionally allowed
+//   - One extra version field (`D`) is also allowed
+//   - Each version fields are limited to 9999.
+//   - pre-release and build-meta is only allowed when the verions is full (has `C`) or extended (has `D`).
 type Version struct {
 	v                 bool // v prefix
 	core              Core
 	prerelease, build string
 }
 
+// Parse parses input string as Version.
 func Parse(s string) (Version, error) {
 	v, a, b, c, d, pre_, build_, err := vPrefixedValidExtendedVer(s)
 	if err != nil {
@@ -216,6 +249,7 @@ func Parse(s string) (Version, error) {
 	}, nil
 }
 
+// MustParse is like [Parse] but panics when s is not accepted as the extended version string.
 func MustParse(s string) Version {
 	v, err := Parse(s)
 	if err != nil {
@@ -224,32 +258,42 @@ func MustParse(s string) Version {
 	return v
 }
 
+// V returns true if v is prefixed with `v`.
 func (v Version) V() bool {
 	return v.v
 }
 
+// Core rturns v wtihout v-prefix, pre-release and build-meta.
 func (v Version) Core() Core {
 	return v.core
 }
 
+// PreRelease returns pre-release string.
+// The returned value is empty if v is not suffixed with pre-prelease.
 func (v Version) PreRelease() string {
 	return v.prerelease
 }
 
+// Build returns build-meta string.
+// The retunred value is empty if v is not suffixed with build-meta.
 func (v Version) Build() string {
 	return v.build
 }
 
+// WithV returns v with v value is changed to the input.
 func (v Version) WithV(vFlag bool) Version {
 	v.v = vFlag
 	return v
 }
 
+// WithCore returns v with core value is changed to the input.
 func (v Version) WithCore(core Core) Version {
 	v.core = core
 	return v
 }
 
+// WithPreRelease returns v with pre-prelease value is changed to the input.
+// If the input is not compliant to the spec, it returns unmodified v and an non-nil error.
 func (v Version) WithPreRelease(prerelease string) (Version, error) {
 	validated, rest, ok := preRelease(prerelease)
 	if !ok {
@@ -262,6 +306,8 @@ func (v Version) WithPreRelease(prerelease string) (Version, error) {
 	return v, nil
 }
 
+// WithBuild returns v with build-meta value is changed to the input.
+// If the input is not compliant to the spec, it returns unmodified v and an non-nil error.
 func (v Version) WithBuild(buildMeta string) (Version, error) {
 	validated, rest, ok := build(buildMeta)
 	if !ok {
@@ -325,6 +371,18 @@ func (v *Version) UnmarshalJSON(data []byte) error {
 	return v.UnmarshalText(data[1 : len(data)-1])
 }
 
+// Compare returns
+//
+//	-1 if v is less than u,
+//	 0 if v equals u,
+//	+1 if v is greater than u.
+//
+// Unlike [Core.Compare], the number of version fields affects ordering:
+// if cores and pre-release of both v and u are semantically same, the shorter one is considered less.
+// e.g. 1.0 is less than 1.0.0.
+//
+// The pre-release values are compared as per spec.
+// see https://semver.org/#spec-item-11
 func (v Version) Compare(u Version) int {
 	if c := v.core.Compare(u.core); c != 0 {
 		return c

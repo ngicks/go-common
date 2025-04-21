@@ -3,6 +3,7 @@ package exver
 import (
 	"iter"
 	"slices"
+	"strconv"
 	"testing"
 )
 
@@ -264,6 +265,110 @@ func TestParse(t *testing.T) {
 			}
 			if *tc.out != ver {
 				t.Errorf("%q: not equal:\nexpected = %#v\nactual = %#v", tc.in, *tc.out, ver)
+			}
+		}
+	}
+}
+
+func TestVersion_With(t *testing.T) {
+	var ver Version
+	if ver.String() != "0.0.0" {
+		t.Fatalf("incorrect String impl")
+	}
+	ver = ver.WithCore(MustNewCore([]uint16{1, 2, 3, 4}))
+	if ver.String() != "1.2.3.4" {
+		t.Fatalf("incorrect WithCore impl")
+	}
+	ver = ver.WithV(true)
+	if ver.String() != "v1.2.3.4" {
+		t.Fatalf("incorrect WithCore impl")
+	}
+	var err error
+	ver, err = ver.WithPreRelease("alpha.3")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ver.String() != "v1.2.3.4-alpha.3" {
+		t.Fatalf("incorrect WithCore impl")
+	}
+
+	ver, err = ver.WithPreRelease("beta")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ver.String() != "v1.2.3.4-beta" {
+		t.Fatalf("incorrect WithCore impl")
+	}
+
+	ver, err = ver.WithBuild("meta-123")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ver.String() != "v1.2.3.4-beta+meta-123" {
+		t.Fatalf("incorrect WithCore impl")
+	}
+}
+
+func TestVersion_String_MarshalText_UnmarshalText_MarshalJSON_UnmarshalJSON(t *testing.T) {
+	for tc := range concat(slices.Values(tests), slices.Values(extendedTests)) {
+		for _, arshalers := range []struct {
+			unmarshal func(s string) (Version, error)
+			marshal   func(v Version) ([]byte, error)
+		}{
+			{
+				func(s string) (Version, error) {
+					var v Version
+					err := v.UnmarshalText([]byte(s))
+					return v, err
+				},
+				Version.MarshalText,
+			},
+			{
+				func(s string) (Version, error) {
+					var v Version
+					err := v.UnmarshalJSON([]byte(strconv.Quote(s)))
+					return v, err
+				},
+				func(v Version) ([]byte, error) {
+					bin, err := v.MarshalJSON()
+					if err == nil {
+						return bin[1 : len(bin)-1], nil
+					}
+					return bin, err
+				},
+			},
+		} {
+			ver, err := arshalers.unmarshal(tc.in)
+			if tc.out == nil {
+				if err == nil {
+					t.Errorf("%q: should be non-nil error but nil", tc.in)
+				}
+				bin, err := arshalers.marshal(ver)
+				if err != nil {
+					t.Errorf("marshaling failed: %v", err)
+				}
+				if string(bin) != "0.0.0" {
+					t.Errorf("zero value must marshaled to \"0.0.0\", but is %q", string(bin))
+				}
+			} else {
+				if err != nil {
+					t.Errorf("%q: should be nil error but is %q", tc.in, err)
+					continue
+				}
+				if *tc.out != ver {
+					t.Errorf("%q: not equal:\nexpected = %#v\nactual = %#v", tc.in, *tc.out, ver)
+				}
+
+				bin, err := arshalers.marshal(ver)
+				if err != nil {
+					t.Errorf("marshaling failed: %v", err)
+				}
+				if string(bin) != tc.in {
+					t.Errorf("not equal:\nexpected = %s\nactual = %s", tc.in, string(bin))
+				}
+				if ver.String() != tc.in {
+					t.Errorf("not equal:\nexpected = %s\nactual = %s", tc.in, ver.String())
+				}
 			}
 		}
 	}

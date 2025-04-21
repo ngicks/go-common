@@ -39,6 +39,14 @@ func NewCore(nums []uint16) (Core, error) {
 	}, nil
 }
 
+func MustNewCore(nums []uint16) Core {
+	c, err := NewCore(nums)
+	if err != nil {
+		panic(err)
+	}
+	return c
+}
+
 func ParseCore(s string) (Core, error) {
 	a, b, c, d, s, err := version(s)
 	if err != nil {
@@ -55,6 +63,14 @@ func ParseCore(s string) (Core, error) {
 	}
 
 	return core, nil
+}
+
+func MustParseCore(s string) Core {
+	c, err := ParseCore(s)
+	if err != nil {
+		panic(err)
+	}
+	return c
 }
 
 func convertCore(a, b, c, d int64) (Core, error) {
@@ -105,13 +121,21 @@ func (c Core) String() string {
 		return "0.0.0"
 	}
 	var builder strings.Builder
+	c.write(&builder)
+	return builder.String()
+}
+
+func (c Core) write(w *strings.Builder) {
+	if c == (Core{}) {
+		w.WriteString("0.0.0")
+		return
+	}
 	for i := range c.length {
 		if i > 0 {
-			builder.WriteByte('.')
+			w.WriteByte('.')
 		}
-		builder.WriteString(strconv.FormatUint(uint64(c.component[i]), 10))
+		w.WriteString(strconv.FormatUint(uint64(c.component[i]), 10))
 	}
-	return builder.String()
 }
 
 var (
@@ -192,8 +216,113 @@ func Parse(s string) (Version, error) {
 	}, nil
 }
 
+func MustParse(s string) Version {
+	v, err := Parse(s)
+	if err != nil {
+		panic(err)
+	}
+	return v
+}
+
+func (v Version) V() bool {
+	return v.v
+}
+
 func (v Version) Core() Core {
 	return v.core
+}
+
+func (v Version) PreRelease() string {
+	return v.prerelease
+}
+
+func (v Version) Build() string {
+	return v.build
+}
+
+func (v Version) WithV(vFlag bool) Version {
+	v.v = vFlag
+	return v
+}
+
+func (v Version) WithCore(core Core) Version {
+	v.core = core
+	return v
+}
+
+func (v Version) WithPreRelease(prerelease string) (Version, error) {
+	validated, rest, ok := preRelease(prerelease)
+	if !ok {
+		return v, fmt.Errorf("not a valid pre-release")
+	}
+	if len(rest) > 0 {
+		return v, fmt.Errorf("extra string %q after pre-release", rest)
+	}
+	v.prerelease = validated
+	return v, nil
+}
+
+func (v Version) WithBuild(buildMeta string) (Version, error) {
+	validated, rest, ok := build(buildMeta)
+	if !ok {
+		return v, fmt.Errorf("not a valid build")
+	}
+	if len(rest) > 0 {
+		return v, fmt.Errorf("extra string %q after build", rest)
+	}
+	v.build = validated
+	return v, nil
+}
+
+func (v Version) String() string {
+	var builder strings.Builder
+	if v.v {
+		builder.WriteByte('v')
+	}
+	v.core.write(&builder)
+	if v.prerelease != "" {
+		builder.WriteByte('-')
+		builder.WriteString(v.prerelease)
+	}
+	if v.build != "" {
+		builder.WriteByte('+')
+		builder.WriteString(v.build)
+	}
+	return builder.String()
+}
+
+var (
+	_ encoding.TextMarshaler   = Version{}
+	_ encoding.TextUnmarshaler = (*Version)(nil)
+)
+
+func (v Version) MarshalText() ([]byte, error) {
+	return []byte(v.String()), nil
+}
+
+func (v *Version) UnmarshalText(text []byte) error {
+	parsed, err := Parse(string(text))
+	if err != nil {
+		return err
+	}
+	*v = parsed
+	return nil
+}
+
+var (
+	_ json.Marshaler   = Version{}
+	_ json.Unmarshaler = (*Version)(nil)
+)
+
+func (v Version) MarshalJSON() ([]byte, error) {
+	return []byte("\"" + v.String() + "\""), nil
+}
+
+func (v *Version) UnmarshalJSON(data []byte) error {
+	if len(data) < 2 {
+		return fmt.Errorf("too short")
+	}
+	return v.UnmarshalText(data[1 : len(data)-1])
 }
 
 func (v Version) Compare(u Version) int {

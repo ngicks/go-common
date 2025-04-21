@@ -329,7 +329,7 @@ func (v Version) Compare(u Version) int {
 	if c := v.core.Compare(u.core); c != 0 {
 		return c
 	}
-	if v.core.length != u.core.length && v.prerelease == "" && u.prerelease == "" {
+	if v.core.length != u.core.length && v.prerelease == u.prerelease {
 		return cmp.Compare(v.core.length, u.core.length)
 	}
 	// When major, minor, and patch are equal, a pre-release version has lower precedence than a normal version:

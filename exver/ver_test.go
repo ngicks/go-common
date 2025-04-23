@@ -1,6 +1,8 @@
 package exver
 
 import (
+	"cmp"
+	"fmt"
 	"iter"
 	"slices"
 	"strconv"
@@ -87,6 +89,48 @@ func TestCore_Component(t *testing.T) {
 	c, _ = NewCore([]uint16{1, 2, 3})
 	if c.Component() != [4]uint16{1, 2, 3, 0} {
 		t.Errorf("not equal:\nexpected = %#v\nactual = %#v", [4]uint16{1, 2, 3, 0}, c.Component())
+	}
+}
+
+func TestCore_Major_Minor_Patch_Extra(t *testing.T) {
+	var (
+		c   Core
+		set [4]uint16
+	)
+	c, _ = NewCore([]uint16{1})
+	set = [4]uint16{c.Major(), c.Minor(), c.Patch(), c.Extra()}
+	if set != [4]uint16{1, 0, 0, 0} {
+		t.Errorf("not equal:\nexpected = %#v\nactual = %#v", [4]uint16{1, 0, 0, 0}, set)
+	}
+	c, _ = NewCore([]uint16{4, 3, 2, 1})
+	set = [4]uint16{c.Major(), c.Minor(), c.Patch(), c.Extra()}
+	if set != [4]uint16{4, 3, 2, 1} {
+		t.Errorf("not equal:\nexpected = %#v\nactual = %#v", [4]uint16{4, 3, 2, 1}, set)
+	}
+}
+
+func TestCore_Normalize_NormalizeExtended(t *testing.T) {
+	for _, tc := range []struct {
+		in                         Core
+		expected, expectedExtended string
+	}{
+		{
+			MustNewCore([]uint16{1}),
+			"1.0.0",
+			"1.0.0.0",
+		},
+		{
+			MustNewCore([]uint16{4, 3, 2, 1}),
+			"4.3.2",
+			"4.3.2.1",
+		},
+	} {
+		if tc.in.Normalize().String() != tc.expected {
+			t.Errorf("not equal:\nexpected = %s\nactual = %s", tc.expected, tc.in.Normalize().String())
+		}
+		if tc.in.NormalizeExtended().String() != tc.expectedExtended {
+			t.Errorf("not equal:\nexpected = %s\nactual = %s", tc.expectedExtended, tc.in.NormalizeExtended().String())
+		}
 	}
 }
 
@@ -204,39 +248,39 @@ var tests = []parseTestCase{
 	{"v1.2-pre", nil},
 	{"v1.2+meta", nil},
 	{"v1.2-pre+meta", nil},
-	{"v1.0.0-alpha", &Version{v: true, core: Core{component: [4]uint16{1}, length: 3}, prerelease: "alpha", build: ""}},
-	{"v1.0.0-alpha.1", &Version{v: true, core: Core{component: [4]uint16{1}, length: 3}, prerelease: "alpha.1", build: ""}},
-	{"v1.0.0-alpha.beta", &Version{v: true, core: Core{component: [4]uint16{1}, length: 3}, prerelease: "alpha.beta", build: ""}},
-	{"v1.0.0-beta", &Version{v: true, core: Core{component: [4]uint16{1}, length: 3}, prerelease: "beta", build: ""}},
-	{"v1.0.0-beta.2", &Version{v: true, core: Core{component: [4]uint16{1}, length: 3}, prerelease: "beta.2", build: ""}},
-	{"v1.0.0-beta.11", &Version{v: true, core: Core{component: [4]uint16{1}, length: 3}, prerelease: "beta.11", build: ""}},
-	{"v1.0.0-rc.1", &Version{v: true, core: Core{component: [4]uint16{1}, length: 3}, prerelease: "rc.1", build: ""}},
-	{"v1", &Version{v: true, core: Core{component: [4]uint16{1}, length: 1}, prerelease: "", build: ""}},
-	{"v1.0", &Version{v: true, core: Core{component: [4]uint16{1}, length: 2}, prerelease: "", build: ""}},
-	{"v1.0.0", &Version{v: true, core: Core{component: [4]uint16{1}, length: 3}, prerelease: "", build: ""}},
-	{"v1.2", &Version{v: true, core: Core{component: [4]uint16{1, 2}, length: 2}, prerelease: "", build: ""}},
-	{"v1.2.0", &Version{v: true, core: Core{component: [4]uint16{1, 2}, length: 3}, prerelease: "", build: ""}},
-	{"v1.2.3-456", &Version{v: true, core: Core{component: [4]uint16{1, 2, 3}, length: 3}, prerelease: "456", build: ""}},
-	{"v1.2.3-456.789", &Version{v: true, core: Core{component: [4]uint16{1, 2, 3}, length: 3}, prerelease: "456.789", build: ""}},
-	{"v1.2.3-456-789", &Version{v: true, core: Core{component: [4]uint16{1, 2, 3}, length: 3}, prerelease: "456-789", build: ""}},
-	{"v1.2.3-456a", &Version{v: true, core: Core{component: [4]uint16{1, 2, 3}, length: 3}, prerelease: "456a", build: ""}},
-	{"v1.2.3-pre", &Version{v: true, core: Core{component: [4]uint16{1, 2, 3}, length: 3}, prerelease: "pre", build: ""}},
-	{"v1.2.3-pre+meta", &Version{v: true, core: Core{component: [4]uint16{1, 2, 3}, length: 3}, prerelease: "pre", build: "meta"}},
-	{"v1.2.3-pre.1", &Version{v: true, core: Core{component: [4]uint16{1, 2, 3}, length: 3}, prerelease: "pre.1", build: ""}},
-	{"v1.2.3-zzz", &Version{v: true, core: Core{component: [4]uint16{1, 2, 3}, length: 3}, prerelease: "zzz", build: ""}},
-	{"v1.2.3", &Version{v: true, core: Core{component: [4]uint16{1, 2, 3}, length: 3}, prerelease: "", build: ""}},
-	{"v1.2.3+meta", &Version{v: true, core: Core{component: [4]uint16{1, 2, 3}, length: 3}, prerelease: "", build: "meta"}},
-	{"v1.2.3+meta-pre", &Version{v: true, core: Core{component: [4]uint16{1, 2, 3}, length: 3}, prerelease: "", build: "meta-pre"}},
-	{"v1.2.3+meta-pre.sha.256a", &Version{v: true, core: Core{component: [4]uint16{1, 2, 3}, length: 3}, prerelease: "", build: "meta-pre.sha.256a"}},
+	{"v1.0.0-alpha", &Version{vPrefix: true, core: Core{component: [4]uint16{1}, length: 3}, prerelease: "alpha", build: ""}},
+	{"v1.0.0-alpha.1", &Version{vPrefix: true, core: Core{component: [4]uint16{1}, length: 3}, prerelease: "alpha.1", build: ""}},
+	{"v1.0.0-alpha.beta", &Version{vPrefix: true, core: Core{component: [4]uint16{1}, length: 3}, prerelease: "alpha.beta", build: ""}},
+	{"v1.0.0-beta", &Version{vPrefix: true, core: Core{component: [4]uint16{1}, length: 3}, prerelease: "beta", build: ""}},
+	{"v1.0.0-beta.2", &Version{vPrefix: true, core: Core{component: [4]uint16{1}, length: 3}, prerelease: "beta.2", build: ""}},
+	{"v1.0.0-beta.11", &Version{vPrefix: true, core: Core{component: [4]uint16{1}, length: 3}, prerelease: "beta.11", build: ""}},
+	{"v1.0.0-rc.1", &Version{vPrefix: true, core: Core{component: [4]uint16{1}, length: 3}, prerelease: "rc.1", build: ""}},
+	{"v1", &Version{vPrefix: true, core: Core{component: [4]uint16{1}, length: 1}, prerelease: "", build: ""}},
+	{"v1.0", &Version{vPrefix: true, core: Core{component: [4]uint16{1}, length: 2}, prerelease: "", build: ""}},
+	{"v1.0.0", &Version{vPrefix: true, core: Core{component: [4]uint16{1}, length: 3}, prerelease: "", build: ""}},
+	{"v1.2", &Version{vPrefix: true, core: Core{component: [4]uint16{1, 2}, length: 2}, prerelease: "", build: ""}},
+	{"v1.2.0", &Version{vPrefix: true, core: Core{component: [4]uint16{1, 2}, length: 3}, prerelease: "", build: ""}},
+	{"v1.2.3-456", &Version{vPrefix: true, core: Core{component: [4]uint16{1, 2, 3}, length: 3}, prerelease: "456", build: ""}},
+	{"v1.2.3-456.789", &Version{vPrefix: true, core: Core{component: [4]uint16{1, 2, 3}, length: 3}, prerelease: "456.789", build: ""}},
+	{"v1.2.3-456-789", &Version{vPrefix: true, core: Core{component: [4]uint16{1, 2, 3}, length: 3}, prerelease: "456-789", build: ""}},
+	{"v1.2.3-456a", &Version{vPrefix: true, core: Core{component: [4]uint16{1, 2, 3}, length: 3}, prerelease: "456a", build: ""}},
+	{"v1.2.3-pre", &Version{vPrefix: true, core: Core{component: [4]uint16{1, 2, 3}, length: 3}, prerelease: "pre", build: ""}},
+	{"v1.2.3-pre+meta", &Version{vPrefix: true, core: Core{component: [4]uint16{1, 2, 3}, length: 3}, prerelease: "pre", build: "meta"}},
+	{"v1.2.3-pre.1", &Version{vPrefix: true, core: Core{component: [4]uint16{1, 2, 3}, length: 3}, prerelease: "pre.1", build: ""}},
+	{"v1.2.3-zzz", &Version{vPrefix: true, core: Core{component: [4]uint16{1, 2, 3}, length: 3}, prerelease: "zzz", build: ""}},
+	{"v1.2.3", &Version{vPrefix: true, core: Core{component: [4]uint16{1, 2, 3}, length: 3}, prerelease: "", build: ""}},
+	{"v1.2.3+meta", &Version{vPrefix: true, core: Core{component: [4]uint16{1, 2, 3}, length: 3}, prerelease: "", build: "meta"}},
+	{"v1.2.3+meta-pre", &Version{vPrefix: true, core: Core{component: [4]uint16{1, 2, 3}, length: 3}, prerelease: "", build: "meta-pre"}},
+	{"v1.2.3+meta-pre.sha.256a", &Version{vPrefix: true, core: Core{component: [4]uint16{1, 2, 3}, length: 3}, prerelease: "", build: "meta-pre.sha.256a"}},
 }
 
 var extendedTests = []parseTestCase{
 	{"v1.2.3.4.5", nil},
 	{"1.2.3-aplphaあああ", nil},
-	{"1.0.0", &Version{v: false, core: Core{component: [4]uint16{1}, length: 3}, prerelease: "", build: ""}},
-	{"1.2.3.4", &Version{v: false, core: Core{component: [4]uint16{1, 2, 3, 4}, length: 4}, prerelease: "", build: ""}},
-	{"v1.2.3.4", &Version{v: true, core: Core{component: [4]uint16{1, 2, 3, 4}, length: 4}, prerelease: "", build: ""}},
-	{"1.2.3.4-pre+meta", &Version{v: false, core: Core{component: [4]uint16{1, 2, 3, 4}, length: 4}, prerelease: "pre", build: "meta"}},
+	{"1.0.0", &Version{vPrefix: false, core: Core{component: [4]uint16{1}, length: 3}, prerelease: "", build: ""}},
+	{"1.2.3.4", &Version{vPrefix: false, core: Core{component: [4]uint16{1, 2, 3, 4}, length: 4}, prerelease: "", build: ""}},
+	{"v1.2.3.4", &Version{vPrefix: true, core: Core{component: [4]uint16{1, 2, 3, 4}, length: 4}, prerelease: "", build: ""}},
+	{"1.2.3.4-pre+meta", &Version{vPrefix: false, core: Core{component: [4]uint16{1, 2, 3, 4}, length: 4}, prerelease: "pre", build: "meta"}},
 }
 
 func concat[V any](seqs ...iter.Seq[V]) iter.Seq[V] {
@@ -383,7 +427,7 @@ func TestCompare(t *testing.T) {
 			if tj.out == nil {
 				continue
 			}
-			cmp := ti.out.Compare(*tj.out)
+			c := ti.out.Compare(*tj.out)
 			var want int
 			if ignoreMeta(*ti.out) == ignoreMeta(*tj.out) {
 				want = 0
@@ -392,8 +436,45 @@ func TestCompare(t *testing.T) {
 			} else {
 				want = +1
 			}
-			if cmp != want {
-				t.Errorf("Compare(%q, %q) = %d, want %d", ti.in, tj.in, cmp, want)
+			if c != want {
+				t.Errorf("Compare(%q, %q) = %d, want %d", ti.in, tj.in, c, want)
+			}
+		}
+	}
+}
+
+func Test_compare_by_sortable_string(t *testing.T) {
+	for i, ti := range tests {
+		if ti.out == nil {
+			continue
+		}
+
+		if len(ti.out.PreReleaseSortable()) != 256 {
+			t.Errorf("wrong leng: expected = 256, actual = %s", ti.out.PreReleaseSortable())
+		}
+
+		for j, tj := range tests {
+			if tj.out == nil {
+				continue
+			}
+			if ti.out.Core().Len() != tj.out.Core().Len() {
+				continue
+			}
+
+			l := fmt.Sprintf("%016d_%s", ti.out.Core().Int64(), ti.out.PreReleaseSortable())
+			r := fmt.Sprintf("%016d_%s", tj.out.Core().Int64(), tj.out.PreReleaseSortable())
+
+			c := cmp.Compare(l, r)
+			var want int
+			if ignoreMeta(*ti.out) == ignoreMeta(*tj.out) {
+				want = 0
+			} else if i < j {
+				want = -1
+			} else {
+				want = +1
+			}
+			if c != want {
+				t.Errorf("Compare(%q, %q) = %d, want %d\nl = %s\nr = %s", ti.in, tj.in, c, want, l, r)
 			}
 		}
 	}

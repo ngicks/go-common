@@ -14,13 +14,15 @@ const (
 	componentMax = 9999
 )
 
-// Core represents only numeric part of [Version].
+// Core is [Version] without v-prefix, pre-release and build-meta.
 //
-// The number of version fields may vary based on input between `a` to `a.b.c.d`.
-// Each field is limited up to 9999.
+// Core represents numeric version.
+// In text representation, it contains 1 to 4 numeric component separated by '.' letter:
+// <major> "." <minor> "." <patch> "." <extra>.
+// Each comopnent is limited at maximum of 9999.
 //
 // The zero value of Core is invalid and must be initialized with [NewCore] or [ParseCore].
-// However calling [Core.String] with zero value returns `"0.0.0"` and works fine almost all situation.
+// However calling [Core.String] with zero value returns "0.0.0" and works fine almost all situation.
 type Core struct {
 	component [4]uint16
 	length    int
@@ -59,7 +61,7 @@ func MustNewCore(nums []uint16) Core {
 
 // ParseCore parses string expression and returns Core.
 // s must be dot-separated numeric values without leading zeros.
-// Similar rules to [NewCore] apply here:
+// Same rules to [NewCore] apply here:
 // the number of version fields must be in between 1 to 4 and each version component must not be greater than 9999.
 func ParseCore(s string) (Core, error) {
 	a, b, c, d, s, err := version(s)
@@ -77,15 +79,6 @@ func ParseCore(s string) (Core, error) {
 	}
 
 	return core, nil
-}
-
-// MustParseCore is like [ParseCore] but panics if any error occurs.
-func MustParseCore(s string) Core {
-	c, err := ParseCore(s)
-	if err != nil {
-		panic(err)
-	}
-	return c
 }
 
 func convertCore(a, b, c, d int64) (Core, error) {
@@ -107,13 +100,60 @@ func convertCore(a, b, c, d int64) (Core, error) {
 	return Core{component: comopnent, length: i}, nil
 }
 
-// Component returns internal version field expression.
+// MustParseCore is like [ParseCore] but panics if any error occurs.
+func MustParseCore(s string) Core {
+	c, err := ParseCore(s)
+	if err != nil {
+		panic(err)
+	}
+	return c
+}
+
+// Component returns internal version field expression,
+// ordered as <major>, <minor>, <patch>, <extra>.
 func (c Core) Component() [4]uint16 {
 	return c.component
 }
 
+func (c Core) Len() int {
+	return c.length
+}
+
+func (c Core) Major() uint16 {
+	return c.component[0]
+}
+
+func (c Core) Minor() uint16 {
+	return c.component[1]
+}
+
+func (c Core) Patch() uint16 {
+	return c.component[2]
+}
+
+func (c Core) Extra() uint16 {
+	return c.component[3]
+}
+
+// Normalize normalizes c into sem ver compatible form,
+// that is, <major> "." <minor> "." <patch>.
+// If version compoments were missed, Normalize fills them as 0.
+func (c Core) Normalize() Core {
+	c.component[3] = 0
+	c.length = 3
+	return c
+}
+
+// NormalizeExtended normalizes c into extended form,
+// that is, <major> "." <minor> "." <patch> "." <extra>.
+// If version compoments were missed, NormalizeExtended fills them as 0.
+func (c Core) NormalizeExtended() Core {
+	c.length = 4
+	return c
+}
+
 // Nums returns version fields as slice of uint.
-// The length of the return value may vary on input,
+// The length of the return value may vary depending on input for [NewCore] or [ParseCore],
 // e.g. if input was `1` then Nums returns []uint{1},
 // if was `1.2.3.4`, it returns []uint{1, 2, 3, 4}.
 func (c Core) Nums() []uint {
@@ -125,7 +165,7 @@ func (c Core) Nums() []uint {
 }
 
 // Int64 returns version fields as int64 value.
-// The conversion logic is roghly same of `strconv.ParseInt(fmt.Sprintf("%04d%04d%04d%04d", a, b, c, d), 10, 64)` but more efficient.
+// The conversion logic is roghly same of `strconv.ParseInt(fmt.Sprintf("%04d%04d%04d%04d", a, b, c, d), 10, 64)`.
 func (c Core) Int64() int64 {
 	var out int64
 	for i := range c.length {
@@ -139,7 +179,7 @@ func (c Core) Int64() int64 {
 }
 
 // String returns string representation of the version.
-// If c is zero, it returns `"0.0.0"`.
+// If c is zero, it returns "0.0.0".
 func (c Core) String() string {
 	if c == (Core{}) {
 		return "0.0.0"
@@ -214,17 +254,17 @@ func (c Core) Compare(u Core) int {
 	return 0
 }
 
-// Version is an implementaion of semantic versioning v2 but with slight extensions.
+// Version represents an extended semantic versioning v2.
 // The general form of a semantic version string accepted by Version is
 //
-// [v]A[.B[.C[.D][-PRERELEASE][+BUILD]]
+// [v]MAJOR[.MINOR[.PATCH[.EXTRA][-PRERELEASE][+BUILD]]
 //
 //   - `v` prefix is optionally allowed
-//   - One extra version field (`D`) is also allowed
-//   - Each version fields are limited to 9999.
-//   - pre-release and build-meta is only allowed when the verions is full (has `C`) or extended (has `D`).
+//   - One extra version field (EXTRA) is also allowed
+//   - Each version components are limited to 9999.
+//   - pre-release and build-meta is only allowed when the verions is full (has PATCH) or extended (has EXTRA).
 type Version struct {
-	v                 bool // v prefix
+	vPrefix           bool
 	core              Core
 	prerelease, build string
 }
@@ -242,7 +282,7 @@ func Parse(s string) (Version, error) {
 	}
 
 	return Version{
-		v:          v,
+		vPrefix:    v,
 		core:       core,
 		prerelease: pre_,
 		build:      build_,
@@ -260,7 +300,7 @@ func MustParse(s string) Version {
 
 // V returns true if v is prefixed with `v`.
 func (v Version) V() bool {
-	return v.v
+	return v.vPrefix
 }
 
 // Core rturns v wtihout v-prefix, pre-release and build-meta.
@@ -280,9 +320,9 @@ func (v Version) Build() string {
 	return v.build
 }
 
-// WithV returns v with v value is changed to the input.
-func (v Version) WithV(vFlag bool) Version {
-	v.v = vFlag
+// WithV returns v with vPrefix value is changed to the input.
+func (v Version) WithV(vPrefix bool) Version {
+	v.vPrefix = vPrefix
 	return v
 }
 
@@ -322,7 +362,7 @@ func (v Version) WithBuild(buildMeta string) (Version, error) {
 
 func (v Version) String() string {
 	var builder strings.Builder
-	if v.v {
+	if v.vPrefix {
 		builder.WriteByte('v')
 	}
 	v.core.write(&builder)
@@ -333,6 +373,70 @@ func (v Version) String() string {
 	if v.build != "" {
 		builder.WriteByte('+')
 		builder.WriteString(v.build)
+	}
+	return builder.String()
+}
+
+// PreReleaseSortable returns pre-release string normalized so that it can be sorted simply by ascii order.
+//
+// The size of returned string is always fixed at 256 by laying following limitations;
+//
+//   - Dot-separated parts are limited at maximum of 8.
+//   - Each sperated part is limited at maximum of 31 letters.
+//
+// You can safely cut off the right-most character (v.PreReleaseSortable()[:255])
+// to fit it to 255 chars (for VARCHAR(255) fields.)
+//
+// As per semantic version 2 spec, pre-release can be dot-separated ascii text.
+// Each sperated part is compared as like version components in version core.
+// Parts with only numeric value is compared as number, others as ascii text.
+//
+// To simulate the comparison rule, PreReleaseSortable pads '0' at left if a part consits of only numeric value, otherwise right.
+//
+// PreReleaseSortable returns strings.Repeat("~", 256) if v is not with pre-release,
+// since as per the spec, version without pre-prelease is more than versions with that.
+func (v Version) PreReleaseSortable() string {
+	if v.prerelease == "" {
+		// version without pre-release is more than versions with pre-release.
+		return strings.Repeat("~", 256)
+	}
+	var (
+		i       int
+		s       string
+		p       = v.prerelease
+		builder strings.Builder
+	)
+	for i = 0; i < 8 && len(p) > 0; i++ {
+		if i > 0 {
+			builder.WriteByte('.')
+		}
+
+		s, p, _ = strings.Cut(p, ".")
+		if len(s) >= 31 {
+			builder.WriteString(s[:31])
+		} else {
+			shouldPadLeft := isNum(s)
+			if shouldPadLeft {
+				for range 31 - len(s) {
+					builder.WriteByte('0')
+				}
+			}
+			builder.WriteString(s)
+			if !shouldPadLeft {
+				for range 31 - len(s) {
+					builder.WriteByte('0')
+				}
+			}
+		}
+	}
+	if i != 8 {
+		if i > 0 {
+			builder.WriteByte('.')
+		}
+		for range 8 - i {
+			const filling = "0000000000000000000000000000000."
+			builder.WriteString(filling)
+		}
 	}
 	return builder.String()
 }

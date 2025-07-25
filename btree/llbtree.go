@@ -6,8 +6,9 @@ import (
 )
 
 type LLBTree[K, V any] struct {
-	cmp  func(l, r K) int
-	root *llbtreeNode[K, V]
+	cmp      func(l, r K) int
+	root     *llbtreeNode[K, V]
+	min, max *llbtreeNode[K, V]
 }
 
 func NewLLBTree[K, V any](cmp func(l, r K) int) *LLBTree[K, V] {
@@ -19,6 +20,134 @@ func NewLLBTree[K, V any](cmp func(l, r K) int) *LLBTree[K, V] {
 func NewLLBTreeOrdered[K cmp.Ordered, V any]() *LLBTree[K, V] {
 	return &LLBTree[K, V]{
 		cmp: cmp.Compare[K],
+	}
+}
+
+func (t *LLBTree[K, V]) Insert(key K, value V) {
+	t.insert(key, value)
+	if t.min == nil || t.cmp(key, t.min.key) == -1 {
+		t.min = nil
+		t.Min()
+	}
+	if t.max == nil || t.cmp(key, t.max.key) == 1 {
+		t.max = nil
+		t.Max()
+	}
+}
+
+func (t *LLBTree[K, V]) InsertSeq(seq iter.Seq2[K, V]) {
+	for k, v := range seq {
+		t.Insert(k, v)
+	}
+}
+
+func (t *LLBTree[K, V]) Get(key K) (value V, ok bool) {
+	n := t.get(key)
+	if n == nil {
+		return
+	}
+	return n.value, true
+}
+
+func (t *LLBTree[K, V]) Remove(key K) (removed bool) {
+	removed = t.delete(key)
+	if removed {
+		if t.min != nil && t.cmp(key, t.min.key) == 0 {
+			t.min = nil
+			t.Min()
+		}
+		if t.max != nil && t.cmp(key, t.max.key) == 0 {
+			t.max = nil
+			t.Max()
+		}
+	}
+	return removed
+}
+
+func (t *LLBTree[K, V]) Min() (key K, value V, ok bool) {
+	if t.min != nil {
+		return t.min.key, t.min.value, true
+	}
+	if t.root == nil {
+		return
+	}
+	n := t.root.leftmost(&t.root)
+	if n == nil || *n == nil {
+		return
+	}
+	t.min = *n
+	return t.min.key, t.min.value, true
+}
+
+func (t *LLBTree[K, V]) Max() (key K, value V, ok bool) {
+	if t.max != nil {
+		return t.max.key, t.max.value, true
+	}
+	if t.root == nil {
+		return
+	}
+	n := t.root.rightmost(&t.root)
+	if n == nil || *n == nil {
+		return
+	}
+	t.max = *n
+	return t.max.key, t.max.value, true
+}
+
+func (t *LLBTree[K, V]) All() iter.Seq2[K, V] {
+	return t.nextInRange(
+		func() *llbtreeNode[K, V] {
+			return *t.root.leftmost(&t.root)
+		},
+		false,
+		*new(K),
+	)
+}
+
+func (t *LLBTree[K, V]) Backward() iter.Seq2[K, V] {
+	return t.prevInRange(
+		func() *llbtreeNode[K, V] {
+			return *t.root.rightmost(&t.root)
+		},
+		false,
+		*new(K),
+	)
+}
+
+func (t *LLBTree[K, V]) Scan(lo, hi K) iter.Seq2[K, V] {
+	switch t.cmp(lo, hi) {
+	case -1, 0: // lo <= hi
+		return t.nextInRange(
+			func() *llbtreeNode[K, V] {
+				loc, parent := t.root.findLocation(&t.root, lo)
+				if loc == nil || *loc == nil {
+					if loc == &parent.left {
+						return parent
+					} else {
+						return parent.ascendFromRight()
+					}
+				}
+				return *loc
+			},
+			true,
+			hi,
+		)
+	default: // lo > hi
+		return t.prevInRange(
+			func() *llbtreeNode[K, V] {
+				loc, parent := t.root.findLocation(&t.root, lo)
+				if loc == nil || *loc == nil {
+					if loc == &parent.right {
+						return parent
+					} else {
+						return parent.ascendFromLeft()
+					}
+				}
+				return *loc
+			},
+			true,
+			hi,
+		)
 	}
 }
 
@@ -290,35 +419,85 @@ func (t *LLBTree[K, V]) get(k K) *llbtreeNode[K, V] {
 	return *loc
 }
 
-func (t *LLBTree[K, V]) all() iter.Seq2[K, V] {
+func (t *LLBTree[K, V]) nextInRange(start func() *llbtreeNode[K, V], limit bool, limitKey K) iter.Seq2[K, V] {
 	return func(yield func(K, V) bool) {
 		if t.root == nil {
 			return
 		}
-		n := t.root.leftMost(&t.root)
-		if n == nil || *n == nil {
+		current := start()
+		if current == nil {
 			return
 		}
-		current := *n
+
+		if limit && t.cmp(current.key, limitKey) > 0 {
+			return
+		}
+
 		if !yield(current.key, current.value) {
 			return
 		}
 		var next *llbtreeNode[K, V]
 		for {
-			if current == nil {
-				return
-			}
 			if current.deleted {
 				next = t.root.nextAfter(&t.root, current.key)
 			} else {
 				next = current.next(&t.root)
 			}
+
 			if next == nil {
 				return
 			}
+
+			if limit && t.cmp(next.key, limitKey) > 0 {
+				return
+			}
+
 			if !yield(next.key, next.value) {
 				return
 			}
+
+			current = next
+		}
+	}
+}
+
+func (t *LLBTree[K, V]) prevInRange(start func() *llbtreeNode[K, V], limit bool, limitKey K) iter.Seq2[K, V] {
+	return func(yield func(K, V) bool) {
+		if t.root == nil {
+			return
+		}
+		current := start()
+		if current == nil {
+			return
+		}
+
+		if limit && t.cmp(current.key, limitKey) < 0 {
+			return
+		}
+
+		if !yield(current.key, current.value) {
+			return
+		}
+		var next *llbtreeNode[K, V]
+		for {
+			if current.deleted {
+				next = t.root.prevBefore(&t.root, current.key)
+			} else {
+				next = current.prev(&t.root)
+			}
+
+			if next == nil {
+				return
+			}
+
+			if limit && t.cmp(next.key, limitKey) < 0 {
+				return
+			}
+
+			if !yield(next.key, next.value) {
+				return
+			}
+
 			current = next
 		}
 	}
@@ -371,10 +550,9 @@ func (n *llbtreeNode[K, V]) next(root **llbtreeNode[K, V]) *llbtreeNode[K, V] {
 			// root
 			return nil
 		}
-		return n.ascendFromRight()
 	}
 	if n.right != nil {
-		node := n.right.leftMost(root)
+		node := n.right.leftmost(root)
 		if node == nil {
 			return nil
 		}
@@ -398,6 +576,41 @@ func (n *llbtreeNode[K, V]) nextAfter(root **llbtreeNode[K, V], k K) *llbtreeNod
 	return (*loc).next(root)
 }
 
+func (n *llbtreeNode[K, V]) prev(root **llbtreeNode[K, V]) *llbtreeNode[K, V] {
+	if n == nil {
+		return nil
+	}
+	if n.isLeaf() {
+		if n.parent == nil {
+			// root
+			return nil
+		}
+	}
+	if n.left != nil {
+		node := n.left.rightmost(root)
+		if node == nil {
+			return nil
+		}
+		return *node
+	}
+	return n.ascendFromLeft()
+}
+
+func (n *llbtreeNode[K, V]) prevBefore(root **llbtreeNode[K, V], k K) *llbtreeNode[K, V] {
+	if n == nil {
+		return nil
+	}
+	loc, parent := n.findLocation(root, k)
+	if *loc == nil {
+		if loc == &parent.right {
+			return parent
+		} else {
+			return parent.ascendFromLeft()
+		}
+	}
+	return (*loc).prev(root)
+}
+
 func (n *llbtreeNode[K, V]) ascendFromRight() *llbtreeNode[K, V] {
 	if n == nil {
 		return nil
@@ -412,13 +625,38 @@ func (n *llbtreeNode[K, V]) ascendFromRight() *llbtreeNode[K, V] {
 	return nil
 }
 
-func (n *llbtreeNode[K, V]) leftMost(root **llbtreeNode[K, V]) **llbtreeNode[K, V] {
+func (n *llbtreeNode[K, V]) ascendFromLeft() *llbtreeNode[K, V] {
+	if n == nil {
+		return nil
+	}
+	node := n
+	for node.parent != nil {
+		if node.parent.right == node {
+			return node.parent
+		}
+		node = node.parent
+	}
+	return nil
+}
+
+func (n *llbtreeNode[K, V]) leftmost(root **llbtreeNode[K, V]) **llbtreeNode[K, V] {
 	if n == nil {
 		return nil
 	}
 	node := n.loc(root)
 	for (*node).left != nil {
 		node = &(*node).left
+	}
+	return node
+}
+
+func (n *llbtreeNode[K, V]) rightmost(root **llbtreeNode[K, V]) **llbtreeNode[K, V] {
+	if n == nil {
+		return nil
+	}
+	node := n.loc(root)
+	for (*node).right != nil {
+		node = &(*node).right
 	}
 	return node
 }
@@ -441,23 +679,6 @@ func (n *llbtreeNode[K, V]) isBlack() bool {
 	return !n.isRed()
 }
 
-func (n *llbtreeNode[K, V]) unlink() {
-	if n == nil {
-		return
-	}
-	n.deleted = true
-	if n.parent != nil {
-		if n.parent.left == n {
-			n.parent.left = nil
-		} else {
-			n.parent.right = nil
-		}
-	}
-	n.parent = nil
-	n.left = nil
-	n.right = nil
-}
-
 func (n *llbtreeNode[K, V]) flipColor() {
 	n.red = !n.red
 	if n.left != nil {
@@ -466,28 +687,6 @@ func (n *llbtreeNode[K, V]) flipColor() {
 	if n.right != nil {
 		n.right.red = !n.right.red
 	}
-}
-
-func (n *llbtreeNode[K, V]) updateKeyValue(updater *llbtreeNode[K, V]) {
-	n.red = updater.red
-	n.key = updater.key
-	n.value = updater.value
-}
-
-func (n *llbtreeNode[K, V]) updateParent(updater *llbtreeNode[K, V]) {
-	n.parent = updater.parent
-	if updater.parent != nil {
-		if updater.parent.left == updater {
-			updater.parent.left = n
-		} else {
-			updater.parent.right = n
-		}
-	}
-}
-
-func (n *llbtreeNode[K, V]) updateChildren(updater *llbtreeNode[K, V]) {
-	n.left = updater.left
-	n.right = updater.right
 }
 
 func (n *llbtreeNode[K, V]) setRight(node *llbtreeNode[K, V]) {

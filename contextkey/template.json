@@ -41,5 +41,16 @@
         "Imports": [
             "log/slog"
         ]
+    },
+    {
+        "FileName": "signal_chan",
+        "Name": "SignalChan",
+        "Type": "chan os.Signal",
+        "DefaultExpr": "(chan os.Signal)(nil)",
+        "NonDefaultExpr": "func() chan os.Signal { return make(chan os.Signal, 10) }()",
+        "EmitTest": true,
+        "Imports": [
+            "os"
+        ]
     }
 ]

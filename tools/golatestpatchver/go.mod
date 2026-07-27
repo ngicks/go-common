@@ -1,4 +1,4 @@
-module github.com/ngicks/go-common/tools
+module github.com/ngicks/go-common/tools/golatestpatchver
 
 go 1.25.0
 

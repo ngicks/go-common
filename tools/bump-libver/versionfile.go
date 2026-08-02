@@ -9,6 +9,8 @@ import (
 	"go/format"
 	"go/token"
 	"os"
+	"path"
+	"path/filepath"
 	"strconv"
 
 	"github.com/ngicks/go-common/exver"
@@ -16,7 +18,7 @@ import (
 	"golang.org/x/tools/go/packages"
 )
 
-// versionFile is the single internal/libver source file holding the
+// versionFile is the single source file of the version package holding the
 // top-level `const Version = "..."`.
 type versionFile struct {
 	path string
@@ -24,28 +26,28 @@ type versionFile struct {
 	file *ast.File
 }
 
-// loadVersionFile loads <prefix>/internal/libver and locates the file
-// declaring `const Version`. Exactly one declaration is required across the
-// package.
+// loadVersionFile loads <prefix>/<libver> and locates the file declaring
+// `const Version`. Exactly one declaration is required across the package.
 //
 // The package is loaded with Dir set to the submodule directory so that a
 // nested module resolves against its own go.mod instead of the root one.
-func loadVersionFile(ctx context.Context, prefix string) (*versionFile, error) {
+func loadVersionFile(ctx context.Context, prefix, libver string) (*versionFile, error) {
 	dir := "."
 	if prefix != "" {
 		dir = prefix
 	}
+	pth := path.Join(dir, libver)
 	cfg := &packages.Config{
 		Mode:    packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles | packages.NeedSyntax,
 		Context: ctx,
-		Dir:     dir,
+		Dir:     filepath.FromSlash(dir),
 	}
-	pkgs, err := packages.Load(cfg, "./internal/libver")
+	pkgs, err := packages.Load(cfg, "./"+path.Clean(libver))
 	if err != nil {
-		return nil, fmt.Errorf("loading %s/internal/libver: %w", dir, err)
+		return nil, fmt.Errorf("loading %s: %w", pth, err)
 	}
 	if len(pkgs) != 1 {
-		return nil, fmt.Errorf("expected exactly one package at %s/internal/libver; got %d", dir, len(pkgs))
+		return nil, fmt.Errorf("expected exactly one package at %s; got %d", pth, len(pkgs))
 	}
 	pkg := pkgs[0]
 	if len(pkg.Errors) > 0 {
@@ -53,7 +55,7 @@ func loadVersionFile(ctx context.Context, prefix string) (*versionFile, error) {
 		for i, e := range pkg.Errors {
 			errs[i] = e
 		}
-		return nil, fmt.Errorf("loading %s/internal/libver: %w", dir, errors.Join(errs...))
+		return nil, fmt.Errorf("loading %s: %w", pth, errors.Join(errs...))
 	}
 
 	var files []*ast.File
@@ -64,8 +66,8 @@ func loadVersionFile(ctx context.Context, prefix string) (*versionFile, error) {
 	}
 	if len(files) != 1 || len(versionLits(files[0])) != 1 {
 		return nil, fmt.Errorf(
-			"expected exactly one top-level `const Version = \"...\"` in %s/internal/libver",
-			dir,
+			"expected exactly one top-level `const Version = \"...\"` in %s",
+			pth,
 		)
 	}
 	f := files[0]

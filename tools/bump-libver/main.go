@@ -7,8 +7,12 @@
 //	go run github.com/ngicks/go-common/tools/bump-libver@latest [flags] [<submodule-dir>]
 //
 // Workflow:
-//  1. Load <submodule-dir>/internal/libver (golang.org/x/tools/go/packages)
-//     and locate the single top-level `const Version = "..."`.
+//  1. Open the working directory with os.OpenRoot and <submodule-dir>
+//     (and the -libver dir under it) through the resulting root — so
+//     neither argument can escape the repository — then load
+//     <submodule-dir>/internal/libver (golang.org/x/tools/go/packages;
+//     relocatable with -libver) and locate the single top-level
+//     `const Version = "..."`.
 //  2. Parse the current value with exver and compute the release version.
 //     By default only the patch component moves: a "-devel" cycle already
 //     carries the pre-bumped patch, so the release just strips the
@@ -27,7 +31,8 @@
 // <submodule-dir> is empty for the root module. For a Go submodule it is the
 // module directory relative to the repository root (subpkg, nested/dir); the
 // git tag is prefixed with it (subpkg/v0.2.0) while the bare version is
-// written into the submodule's internal/libver.
+// written into the submodule's version package (-libver, default
+// internal/libver).
 //
 // Run from the repository root, or point -C at it.
 //
@@ -41,7 +46,8 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"strings"
+	"path"
+	"path/filepath"
 	"syscall"
 
 	"github.com/ngicks/go-common/exver"
@@ -49,6 +55,7 @@ import (
 
 var (
 	flagChdir    = flag.String("C", "", "change to this directory (the repository root) before doing anything")
+	flagLibver   = flag.String("libver", "internal/libver", "slash-separated directory of the version package, relative to <submodule-dir>")
 	flagBump     = flag.String("bump", "patch", "version component to bump: patch, minor or major")
 	flagRelease  = flag.String("release", "", "explicit release version (overrides -bump); must NOT end in -devel")
 	flagNext     = flag.String("next", "", "explicit next development version; must end in -devel")
@@ -67,9 +74,9 @@ func init() {
                   repository root (subpkg, nested/dir). Empty releases the
                   root module. The git tag is prefixed with it
                   (subpkg/v0.2.0); the version file is
-                  <submodule-dir>/internal/libver.
+                  <submodule-dir>/<-libver dir> (default internal/libver).
 
-The current version is read from internal/libver's top-level
+The current version is read from the version package's top-level
 const Version = "..." and incremented; by default only the patch component
 moves (a -devel cycle already carries the pre-bumped patch, so the release
 just strips the pre-release suffix).
@@ -102,6 +109,7 @@ func main() {
 		bump:     *flagBump,
 		release:  *flagRelease,
 		next:     *flagNext,
+		libver:   *flagLibver,
 		dryRun:   *flagDryRun,
 		noCommit: *flagNoCommit,
 		noPush:   *flagNoPush,
@@ -113,16 +121,41 @@ func main() {
 }
 
 type options struct {
-	bump, release, next      string
-	dryRun, noCommit, noPush bool
+	bump, release, next, libver string
+	dryRun, noCommit, noPush    bool
 }
 
 func run(ctx context.Context, prefix string, opts options) error {
-	if err := validatePrefix(prefix); err != nil {
-		return err
+	// normalize so the git tag prefix comes out clean (no "sub//v0.2.0")
+	if prefix != "" {
+		prefix = path.Clean(prefix)
+		if prefix == "." {
+			prefix = ""
+		}
 	}
 
-	vf, err := loadVersionFile(ctx, prefix)
+	root, err := os.OpenRoot(".")
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+
+	sub := root
+	if prefix != "" {
+		sub, err = root.OpenRoot(filepath.FromSlash(prefix))
+		if err != nil {
+			return fmt.Errorf("opening submodule dir: %w", err)
+		}
+		defer sub.Close()
+	}
+	// confine -libver to the submodule directory before it reaches go list
+	lib, err := sub.OpenRoot(filepath.FromSlash(opts.libver))
+	if err != nil {
+		return fmt.Errorf("opening version package dir: %w", err)
+	}
+	lib.Close()
+
+	vf, err := loadVersionFile(ctx, prefix, opts.libver)
 	if err != nil {
 		return err
 	}
@@ -210,18 +243,6 @@ func run(ctx context.Context, prefix string, opts options) error {
 		nextTag,
 		tag,
 	)
-	return nil
-}
-
-func validatePrefix(prefix string) error {
-	if prefix == "" {
-		return nil
-	}
-	for _, c := range strings.Split(prefix, "/") {
-		if c == "" || c == "." || c == ".." || strings.ContainsAny(c, `\:`) {
-			return fmt.Errorf("submodule-dir must be a clean slash-separated relative path; got %q", prefix)
-		}
-	}
 	return nil
 }
 

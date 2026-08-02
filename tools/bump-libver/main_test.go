@@ -27,19 +27,6 @@ func TestIsDevel(t *testing.T) {
 	}
 }
 
-func TestValidatePrefix(t *testing.T) {
-	for _, ok := range []string{"", "subpkg", "nested/dir", "go.mod-helper"} {
-		if err := validatePrefix(ok); err != nil {
-			t.Errorf("validatePrefix(%q) = %v, want nil", ok, err)
-		}
-	}
-	for _, bad := range []string{"/abs", "a//b", ".", "..", "a/../b", `a\b`, "trailing/"} {
-		if err := validatePrefix(bad); err == nil {
-			t.Errorf("validatePrefix(%q) = nil, want error", bad)
-		}
-	}
-}
-
 func TestReleaseVersion(t *testing.T) {
 	cases := []struct {
 		cur      string
@@ -133,7 +120,7 @@ func TestLoadVersionFile_rewrite(t *testing.T) {
 	writeFile(t, dir, "internal/libver/version.go", libverSrc)
 	t.Chdir(dir)
 
-	vf, err := loadVersionFile(t.Context(), "")
+	vf, err := loadVersionFile(t.Context(), "", "internal/libver")
 	if err != nil {
 		t.Fatalf("loadVersionFile: %v", err)
 	}
@@ -174,11 +161,26 @@ func TestLoadVersionFile_submodule(t *testing.T) {
 	writeFile(t, dir, "sub/internal/libver/version.go", libverSrc)
 	t.Chdir(dir)
 
-	vf, err := loadVersionFile(t.Context(), "sub")
+	vf, err := loadVersionFile(t.Context(), "sub", "internal/libver")
 	if err != nil {
 		t.Fatalf("loadVersionFile: %v", err)
 	}
 	if want := filepath.Join(dir, "sub", "internal", "libver", "version.go"); vf.path != want {
+		t.Errorf("path = %q, want %q", vf.path, want)
+	}
+}
+
+func TestLoadVersionFile_customLibverDir(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "go.mod", "module example.com/x\n\ngo 1.25.0\n")
+	writeFile(t, dir, "meta/ver/version.go", libverSrc)
+	t.Chdir(dir)
+
+	vf, err := loadVersionFile(t.Context(), "", "meta/ver")
+	if err != nil {
+		t.Fatalf("loadVersionFile: %v", err)
+	}
+	if want := filepath.Join(dir, "meta", "ver", "version.go"); vf.path != want {
 		t.Errorf("path = %q, want %q", vf.path, want)
 	}
 }
@@ -188,7 +190,7 @@ func TestLoadVersionFile_errors(t *testing.T) {
 		dir := t.TempDir()
 		writeFile(t, dir, "go.mod", "module example.com/x\n\ngo 1.25.0\n")
 		t.Chdir(dir)
-		if _, err := loadVersionFile(t.Context(), ""); err == nil {
+		if _, err := loadVersionFile(t.Context(), "", "internal/libver"); err == nil {
 			t.Fatal("expected error when internal/libver does not exist")
 		}
 	})
@@ -198,7 +200,7 @@ func TestLoadVersionFile_errors(t *testing.T) {
 		writeFile(t, dir, "go.mod", "module example.com/x\n\ngo 1.25.0\n")
 		writeFile(t, dir, "internal/libver/version.go", "package libver\n")
 		t.Chdir(dir)
-		if _, err := loadVersionFile(t.Context(), ""); err == nil {
+		if _, err := loadVersionFile(t.Context(), "", "internal/libver"); err == nil {
 			t.Fatal("expected error when const Version is missing")
 		}
 	})
@@ -210,12 +212,12 @@ func TestLoadVersionFile_errors(t *testing.T) {
 		writeFile(t, dir, "internal/libver/other.go", "package libver\n\nconst Version2 = Version // not a dup\n")
 		writeFile(t, dir, "internal/libver/dup.go", "package libver\n\nconst version = \"x\"\n")
 		t.Chdir(dir)
-		if _, err := loadVersionFile(t.Context(), ""); err != nil {
+		if _, err := loadVersionFile(t.Context(), "", "internal/libver"); err != nil {
 			t.Fatalf("similarly named consts must not confuse detection: %v", err)
 		}
 
 		writeFile(t, dir, "internal/libver/dup2.go", "package libver\n\n//go:generate true\nconst Version = \"v0.2.0\"\n")
-		if _, err := loadVersionFile(t.Context(), ""); err == nil {
+		if _, err := loadVersionFile(t.Context(), "", "internal/libver"); err == nil {
 			t.Fatal("expected error on two Version declarations")
 		}
 	})
